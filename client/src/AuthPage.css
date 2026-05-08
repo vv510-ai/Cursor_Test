@@ -1,0 +1,98 @@
+.auth-page {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: transparent;
+  color: var(--text);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 22rem;
+  padding: 1.75rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, var(--border));
+  background: color-mix(in oklab, var(--panel) 68%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 8%, transparent),
+    0 28px 90px rgba(0, 0, 0, 0.35);
+}
+
+.auth-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.auth-sub {
+  margin: 0 0 1.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.auth-tabs button {
+  flex: 1;
+  padding: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--chip);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+  color: var(--text);
+  background: color-mix(in oklab, var(--accent) 10%, var(--chip));
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.auth-field input {
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bubble);
+  color: var(--text);
+  font: inherit;
+}
+
+.auth-error {
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  border: 1px solid color-mix(in oklab, var(--bad) 40%, var(--border));
+  background: color-mix(in oklab, var(--bad) 10%, var(--panel));
+  color: var(--bad);
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.auth-cancel {
+  width: 100%;
+  margin-top: 0.55rem;
+}

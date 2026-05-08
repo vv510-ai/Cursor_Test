@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    image: chat-deepseek:latest
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # Required
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in env or .env file}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in env or .env file}"
+      # Optional overrides
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:8787}"
+      DAILY_CHAT_LIMIT: "${DAILY_CHAT_LIMIT:-200}"
+      RATE_LIMIT_CHAT_PER_MIN: "${RATE_LIMIT_CHAT_PER_MIN:-30}"
+      MAX_CONTEXT_CHARS: "${MAX_CONTEXT_CHARS:-120000}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-604800}"
+      # Fixed by image
+      PORT: "8787"
+      SQLITE_PATH: "/app/data/chat.sqlite"
+      SERVE_STATIC_DIR: "/app/public"
+    volumes:
+      - chat_data:/app/data
+
+volumes:
+  chat_data:

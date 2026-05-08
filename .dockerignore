@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/coverage
+**/.DS_Store
+data/
+scripts/logs/
+*.log
+.git
+.gitignore
+.idea
+.vscode
+README.md
+docs/**
+client/README.md
