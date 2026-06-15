@@ -1,14 +1,12 @@
 "use client";
-/** PathDag —— 学习路径 DAG:
- *  客户端按最长路分层布局;节点按状态着色(done=薄荷 / ready=电光蓝 / locked=暗),
- *  推荐 next_kp 以星火橙描边呼吸;点击节点上抛详情。 */
+
 import { useMemo } from "react";
 import type { PathNode, PathPlan } from "@/lib/types";
 
 const W = 980;
-const NODE_W = 118;
-const NODE_H = 46;
-const GAP_Y = 76;
+const NODE_W = 122;
+const NODE_H = 50;
+const GAP_Y = 80;
 
 function layout(plan: PathPlan) {
   const layer: Record<string, number> = {};
@@ -34,16 +32,16 @@ function layout(plan: PathPlan) {
   byLayer.forEach((row, li) => {
     row.forEach((id, ri) => {
       const x = ((ri + 1) * W) / (row.length + 1);
-      pos[id] = { x, y: 40 + li * GAP_Y };
+      pos[id] = { x, y: 42 + li * GAP_Y };
     });
   });
-  return { pos, height: 40 + byLayer.length * GAP_Y };
+  return { pos, height: 56 + byLayer.length * GAP_Y };
 }
 
-const FILL: Record<PathNode["status"], { bg: string; border: string; text: string }> = {
-  done: { bg: "rgba(52,211,153,.12)", border: "#34d399", text: "#a7f3d0" },
-  ready: { bg: "rgba(56,189,248,.12)", border: "#38bdf8", text: "#e7eefc" },
-  locked: { bg: "rgba(17,26,46,.9)", border: "#1e2a45", text: "#5b6b8e" },
+const FILL: Record<PathNode["status"], { bg: string; border: string; text: string; bar: string }> = {
+  done: { bg: "#ecfdf5", border: "#34d399", text: "#047857", bar: "#059669" },
+  ready: { bg: "#eff6ff", border: "#60a5fa", text: "#1d4ed8", bar: "#2563eb" },
+  locked: { bg: "#f8fafc", border: "#cbd5e1", text: "#64748b", bar: "#94a3b8" },
 };
 
 export default function PathDag({
@@ -60,6 +58,12 @@ export default function PathDag({
 
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full">
+      <defs>
+        <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="#94a3b8" />
+        </marker>
+      </defs>
+
       {plan.edges.map((e, i) => {
         const a = pos[e.from];
         const b = pos[e.to];
@@ -71,18 +75,13 @@ export default function PathDag({
             key={i}
             d={`M ${a.x} ${a.y + NODE_H / 2} C ${a.x} ${midY}, ${b.x} ${midY}, ${b.x} ${b.y - NODE_H / 2}`}
             fill="none"
-            stroke={unlocked ? "#38bdf8" : "#1e2a45"}
-            strokeWidth={unlocked ? 1.6 : 1.2}
-            strokeOpacity={unlocked ? 0.7 : 0.8}
+            stroke={unlocked ? "#2563eb" : "#cbd5e1"}
+            strokeWidth={unlocked ? 1.8 : 1.2}
+            strokeOpacity={unlocked ? 0.7 : 0.95}
             markerEnd="url(#arrow)"
           />
         );
       })}
-      <defs>
-        <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L8,4 L0,8 z" fill="#2a3a5e" />
-        </marker>
-      </defs>
 
       {plan.nodes.map((n) => {
         const p = pos[n.id];
@@ -93,18 +92,18 @@ export default function PathDag({
         return (
           <g key={n.id} transform={`translate(${p.x - NODE_W / 2}, ${p.y - NODE_H / 2})`} className="cursor-pointer" onClick={() => onSelect(n.id)}>
             {isNext && (
-              <rect x="-4" y="-4" width={NODE_W + 8} height={NODE_H + 8} rx="12" fill="none" stroke="#fb923c" strokeWidth="1.5" strokeDasharray="5 4" className="animate-breathe" />
+              <rect x="-5" y="-5" width={NODE_W + 10} height={NODE_H + 10} rx="14" fill="none" stroke="#f97316" strokeWidth="1.6" strokeDasharray="5 4" className="animate-breathe" />
             )}
-            <rect width={NODE_W} height={NODE_H} rx="9" fill={f.bg} stroke={isSel ? "#fb923c" : f.border} strokeWidth={isSel ? 2 : 1.4} />
-            <text x={NODE_W / 2} y={18} textAnchor="middle" fontSize="12.5" fontWeight={600} fill={f.text}>
+            <rect width={NODE_W} height={NODE_H} rx="12" fill={f.bg} stroke={isSel ? "#f97316" : f.border} strokeWidth={isSel ? 2.2 : 1.5} />
+            <text x={NODE_W / 2} y={19} textAnchor="middle" fontSize="12.5" fontWeight={700} fill={f.text}>
               {n.name}
             </text>
-            <rect x="12" y={NODE_H - 16} width={NODE_W - 24} height="4" rx="2" fill="#1e2a45" />
-            <rect x="12" y={NODE_H - 16} width={(NODE_W - 24) * Math.min(1, n.mastery)} height="4" rx="2" fill={n.status === "done" ? "#34d399" : "#38bdf8"} />
+            <rect x="14" y={NODE_H - 16} width={NODE_W - 28} height="5" rx="2.5" fill="#e2e8f0" />
+            <rect x="14" y={NODE_H - 16} width={(NODE_W - 28) * Math.min(1, n.mastery)} height="5" rx="2.5" fill={f.bar} />
             {n.order && (
               <g>
-                <circle cx={NODE_W - 2} cy="2" r="9" fill="#fb923c" />
-                <text x={NODE_W - 2} y="5.5" textAnchor="middle" fontSize="10" fontWeight={700} fill="#0b1020">
+                <circle cx={NODE_W - 3} cy="3" r="10" fill="#f97316" />
+                <text x={NODE_W - 3} y="6.5" textAnchor="middle" fontSize="10" fontWeight={800} fill="#fff">
                   {n.order}
                 </text>
               </g>

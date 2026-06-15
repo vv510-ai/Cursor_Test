@@ -1,8 +1,5 @@
 "use client";
-/** Chat —— 学习对话主组件:
- *  任意自然语言 → POST /api/chat(SSE)→ Orchestrator 意图路由;
- *  token 流入当前助手消息,resource 事件落成内嵌卡片,profile/path 事件上抛给页面
- *  (右侧遥测面板与画像雷达据此实时刷新)。 */
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { USER_ID, postSSE } from "@/lib/api";
 import type { ResourceItem, SparkEvent } from "@/lib/types";
@@ -18,10 +15,10 @@ interface Msg {
 }
 
 const STARTERS = [
-  "我是大二学生,两周后期末考,想先攻克二叉树和动态规划",
-  "为我生成「二叉树」的全套学习资源",
-  "为什么 Dijkstra 算法不能处理负权边?",
-  "我总是搞混快排和归并的稳定性,出几道题考考我",
+  "我是大二学生，两周后期末，想先攻克二叉树和动态规划",
+  "为我生成二叉树的全套学习资源",
+  "为什么 Dijkstra 算法不能处理负权边？",
+  "我总是混淆快排和归并的稳定性，出几道题考考我",
 ];
 
 export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }) {
@@ -68,14 +65,15 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
               if (ev.resource) patchLast((a) => ({ ...a, resources: [...a.resources, ev.resource!] }));
               break;
             case "citations":
-              if (ev.items?.length)
+              if (ev.items?.length) {
                 patchLast((a) => ({ ...a, citations: Array.from(new Set([...a.citations, ...ev.items!])) }));
+              }
               break;
             case "summary":
               patchLast((a) => ({ ...a, text: a.text || (ev.text as string) || "" }));
               break;
             case "error":
-              patchLast((a) => ({ ...a, text: a.text + `\n\n> ⚠️ ${ev.detail || "服务异常"}` }));
+              patchLast((a) => ({ ...a, text: a.text + `\n\n> 服务异常：${ev.detail || "请稍后重试"}` }));
               break;
             case "done":
               patchLast((a) => ({ ...a, streaming: false }));
@@ -93,52 +91,59 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
   );
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] flex-col rounded-xl border border-hairline bg-panel/30">
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {msgs.length === 0 && (
-          <div className="mx-auto mt-14 max-w-md text-center">
-            <div className="font-mono text-[10px] tracking-[0.3em] text-spark">MULTI-AGENT TUTORING</div>
-            <h1 className="mt-2 text-xl font-bold text-slate-100">
-              说出你的目标,九个智能体开始协同
+    <div className="glass-panel flex h-[calc(100vh-9rem)] min-h-[560px] flex-col overflow-hidden rounded-xl">
+      <div className="border-b border-slate-200 bg-white/70 px-5 py-4">
+        <div className="font-mono text-[10px] tracking-[0.24em] text-blue-600">MULTI-AGENT TUTORING</div>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-[22px] font-black leading-tight tracking-tight text-slate-950 sm:text-2xl">
+              说出学习目标，系统拆解、检索、生成、评估
             </h1>
-            <p className="mt-2 text-xs leading-6 text-muted">
-              画像 · 规划 · 路径 · 文档 / 脑图 / 题库 / 视频并行生成 · 质检评估 —— 右侧遥测面板实时可见。
-            </p>
-            <div className="mt-5 grid gap-2">
-              {STARTERS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="rounded-lg border border-hairline bg-panel/60 px-3 py-2 text-left text-xs text-body transition hover:border-spark/50 hover:text-slate-100"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            <p className="mt-1 text-sm text-slate-500">画像、规划、路径、资源与质检会在右侧实时展开。</p>
+          </div>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+            当前用户：demo_user
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-5">
+        {msgs.length === 0 && (
+          <div className="mx-auto grid max-w-3xl gap-3 pt-4 sm:grid-cols-2">
+            {STARTERS.map((s) => (
+              <button
+                key={s}
+                onClick={() => send(s)}
+                className="rounded-xl border border-slate-200 bg-white p-4 text-left text-sm text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
+              >
+                <span className="mb-2 block font-mono text-[10px] tracking-[0.2em] text-blue-500">TRY THIS</span>
+                {s}
+              </button>
+            ))}
           </div>
         )}
 
         {msgs.map((m, i) =>
           m.role === "user" ? (
             <div key={i} className="flex justify-end">
-              <div className="max-w-[78%] rounded-2xl rounded-br-sm bg-spark/15 px-3.5 py-2 text-[13px] text-slate-100">
+              <div className="max-w-[82%] rounded-2xl rounded-br-md bg-blue-600 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
                 {m.text}
               </div>
             </div>
           ) : (
-            <div key={i} className="flex gap-2.5">
-              <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-ember/50 bg-panel font-mono text-[9px] text-ember">
+            <div key={i} className="flex gap-3">
+              <div className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-orange-200 bg-orange-50 font-mono text-[10px] font-bold text-orange-700">
                 AI
               </div>
-              <div className="min-w-0 flex-1 space-y-2.5">
+              <div className="min-w-0 flex-1 space-y-3">
                 {(m.text || m.streaming) && (
-                  <div className="rounded-2xl rounded-tl-sm border border-hairline bg-panel/70 px-3.5 py-2.5">
+                  <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <Markdown text={m.text} streaming={m.streaming} />
                     {m.citations.length > 0 && !m.streaming && (
-                      <div className="mt-2 border-t border-hairline/60 pt-1.5">
+                      <div className="mt-3 border-t border-slate-200 pt-2">
                         {m.citations.map((c, j) => (
-                          <div key={j} className="text-[10.5px] leading-5 text-muted">
-                            <span className="font-mono text-ember/80">[{j + 1}]</span> {c}
+                          <div key={j} className="text-xs leading-5 text-slate-500">
+                            <span className="font-mono text-orange-600">[{j + 1}]</span> {c}
                           </div>
                         ))}
                       </div>
@@ -155,7 +160,7 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-hairline p-3">
+      <div className="border-t border-slate-200 bg-white/80 p-4">
         <div className="flex items-end gap-2">
           <textarea
             value={input}
@@ -167,13 +172,13 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
               }
             }}
             rows={1}
-            placeholder="例:帮我规划复习路径 / 讲讲堆排序 / 出 5 道哈希表的题…(Enter 发送)"
-            className="max-h-28 flex-1 resize-none rounded-lg border border-hairline bg-ink/70 px-3 py-2.5 text-[13px] text-body outline-none transition focus:border-spark/60"
+            placeholder="例如：帮我规划二叉树复习路径，顺便生成图文、题目和讲解视频"
+            className="max-h-28 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           />
           {busy ? (
             <button
               onClick={() => abortRef.current?.()}
-              className="h-10 shrink-0 rounded-lg border border-ember/60 px-4 text-sm text-ember hover:bg-ember/10"
+              className="h-11 shrink-0 rounded-lg border border-orange-300 px-4 text-sm font-semibold text-orange-700 hover:bg-orange-50"
             >
               停止
             </button>
@@ -181,7 +186,7 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
             <button
               onClick={() => send(input)}
               disabled={!input.trim()}
-              className="h-10 shrink-0 rounded-lg bg-spark px-5 text-sm font-semibold text-ink transition hover:brightness-110 disabled:opacity-40"
+              className="h-11 shrink-0 rounded-lg bg-blue-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               发送
             </button>

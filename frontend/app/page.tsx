@@ -1,6 +1,5 @@
 "use client";
-/** 主页(学习对话):左侧对话流 + 右侧任务遥测面板。
- *  Chat 上抛的 SSE 事件同时驱动 AgentTrace(编排可视化)与 ProfileRadar(随学随新画像)。 */
+
 import { useCallback, useEffect, useState } from "react";
 import Chat from "@/components/chat/Chat";
 import AgentTrace, { applyTraceEvent, emptyTrace, type TraceState } from "@/components/agent/AgentTrace";
@@ -24,26 +23,25 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
       <Chat onEvent={onEvent} />
 
       <aside className="hidden lg:block">
-        <div className="sticky top-[4.5rem] space-y-3">
-          <div className="flex gap-1 rounded-lg border border-hairline bg-panel/40 p-1">
+        <div className="sticky top-[5.5rem] space-y-3">
+          <div className="grid grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
             {(
               [
-                ["trace", "AGENT TRACE", "编排遥测"],
-                ["profile", "PROFILE", "学生画像"],
+                ["trace", "编排追踪"],
+                ["profile", "学生画像"],
               ] as const
-            ).map(([key, code, label]) => (
+            ).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs transition ${
-                  tab === key ? "bg-spark/15 text-slate-100" : "text-muted hover:text-body"
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  tab === key ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
-                <span className="mr-1.5 font-mono text-[9px] tracking-[0.18em] text-spark/70">{code}</span>
                 {label}
               </button>
             ))}

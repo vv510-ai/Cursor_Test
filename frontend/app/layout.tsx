@@ -4,8 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SparkLearn 星火学伴 · 多智能体个性化学习",
-  description:
-    "基于讯飞星火的个性化资源生成与学习多智能体系统 —— 数据结构与算法",
+  description: "面向数据结构与算法学习的多智能体个性化学习工作台",
 };
 
 const NAV = [
@@ -19,38 +18,40 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body className="min-h-screen antialiased">
-        <header className="sticky top-0 z-40 border-b border-hairline bg-ink/85 backdrop-blur">
-          <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
-            <Link href="/" className="flex items-center gap-2.5">
-              <span className="relative flex h-7 w-7 items-center justify-center rounded-md border border-spark/50 bg-panel">
-                <span className="absolute h-2 w-2 rounded-full bg-ember shadow-[0_0_10px_2px_rgba(251,146,60,.6)]" />
-                <span className="absolute inset-0 rounded-md border border-spark/20 animate-breathe" />
+        <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/88 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 md:min-h-16 md:flex-row md:items-center md:gap-6 md:py-0">
+            <Link href="/" className="flex items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center rounded-lg border border-blue-200 bg-blue-50 text-sm font-black text-blue-700 shadow-sm">
+                S
               </span>
-              <span className="text-[15px] font-bold tracking-wide text-slate-100">
-                SparkLearn <span className="text-ember">星火学伴</span>
+              <span className="leading-tight">
+                <span className="block text-base font-black tracking-tight text-slate-950">SparkLearn</span>
+                <span className="block text-xs font-medium text-slate-500">星火学伴</span>
               </span>
             </Link>
-            <nav className="ml-2 flex items-center gap-1">
+
+            <nav className="no-scrollbar -mx-1 flex flex-1 items-center gap-1.5 overflow-x-auto px-1 md:justify-center">
               {NAV.map((n) => (
                 <Link
                   key={n.href}
                   href={n.href}
-                  className="group rounded-md px-3 py-1.5 text-sm text-muted transition hover:bg-panel hover:text-body"
+                  className="group shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
                 >
-                  <span className="mr-1.5 font-mono text-[10px] tracking-[0.18em] text-spark/60 group-hover:text-spark">
+                  <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-500/75 group-hover:text-blue-600">
                     {n.code}
                   </span>
                   {n.label}
                 </Link>
               ))}
             </nav>
-            <div className="ml-auto hidden items-center gap-2 font-mono text-[10px] tracking-[0.2em] text-muted md:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-mint" />
-              MULTI-AGENT · 数据结构与算法
+
+            <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 lg:flex">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              多智能体在线
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-5">{children}</main>
+        <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
       </body>
     </html>
   );

@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  --ink: #f7f9fc;
+  --ink: #f6f8fb;
   --panel: #ffffff;
-  --hairline: #d8e0ec;
+  --hairline: #dbe3ee;
   --spark: #2563eb;
   --ember: #f97316;
   --mint: #059669;
@@ -17,7 +17,9 @@ body {
 }
 
 body {
-  background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
+  background:
+    radial-gradient(circle at 20% -10%, rgba(37, 99, 235, 0.10), transparent 32rem),
+    linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
   color: #1f2937;
   font-feature-settings: "tnum" 1;
 }
@@ -41,13 +43,24 @@ body {
   border-radius: 3px;
 }
 
-.text-slate-100 {
-  color: #0f172a !important;
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.glass-panel {
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
 }
 
 .telemetry {
-  background-image: linear-gradient(#ffffffd9, #ffffffd9),
-    repeating-linear-gradient(0deg, transparent 0 22px, rgba(37, 99, 235, 0.05) 22px 23px);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)),
+    repeating-linear-gradient(0deg, transparent 0 22px, rgba(37, 99, 235, 0.06) 22px 23px);
 }
 
 .prose-spark {
@@ -60,7 +73,7 @@ body {
 .prose-spark h2,
 .prose-spark h3 {
   color: #0f172a;
-  font-weight: 700;
+  font-weight: 750;
   margin: 1.1em 0 0.45em;
 }
 
