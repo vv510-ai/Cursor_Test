@@ -5,14 +5,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#0B1020",        // 深空底色
-        panel: "#111A2E",      // 星图面板
-        hairline: "#1E2A45",   // 细线
-        spark: "#38BDF8",      // 电光蓝(智能体活动)
-        ember: "#FB923C",      // 星火橙(品牌/CTA)
-        mint: "#34D399",       // 已掌握/成功
-        body: "#C7D2E8",
-        muted: "#7C8DB0",
+        ink: "#F7F9FC",
+        panel: "#FFFFFF",
+        hairline: "#D8E0EC",
+        spark: "#2563EB",
+        ember: "#F97316",
+        mint: "#059669",
+        body: "#1F2937",
+        muted: "#64748B",
       },
       fontFamily: {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
@@ -25,10 +25,14 @@ const config: Config = {
       keyframes: {
         breathe: { "0%,100%": { opacity: ".45" }, "50%": { opacity: "1" } },
         dash: { to: { strokeDashoffset: "-12" } },
-        rise: { from: { opacity: "0", transform: "translateY(6px)" }, to: { opacity: "1", transform: "none" } },
+        rise: {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "none" },
+        },
       },
     },
   },
   plugins: [],
 };
+
 export default config;

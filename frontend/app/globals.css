@@ -2,144 +2,155 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── SparkLearn 主题令牌:深空 ink / 电光 spark / 星火 ember ───────────── */
 :root {
-  --ink: #0b1020;
-  --panel: #111a2e;
-  --hairline: #1e2a45;
-  --spark: #38bdf8;
-  --ember: #fb923c;
-  --mint: #34d399;
+  --ink: #f7f9fc;
+  --panel: #ffffff;
+  --hairline: #d8e0ec;
+  --spark: #2563eb;
+  --ember: #f97316;
+  --mint: #059669;
 }
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 85% -10%, rgba(56, 189, 248, 0.07), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(251, 146, 60, 0.05), transparent 55%),
-    var(--ink);
-  color: #c7d2e8;
-  font-feature-settings: "tnum" 1; /* 遥测数字等宽对齐 */
+  background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
+  color: #1f2937;
+  font-feature-settings: "tnum" 1;
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.35);
+  background: rgba(37, 99, 235, 0.18);
 }
 
-/* 细滚动条,贴合控制台质感 */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a3a5e transparent;
+  scrollbar-color: #cbd5e1 transparent;
 }
+
 *::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 *::-webkit-scrollbar-thumb {
-  background: #2a3a5e;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
-/* 任务遥测面板的扫描线点缀(签名件氛围,克制) */
-.telemetry {
-  background-image: repeating-linear-gradient(
-    0deg,
-    transparent 0 22px,
-    rgba(56, 189, 248, 0.025) 22px 23px
-  );
+.text-slate-100 {
+  color: #0f172a !important;
 }
 
-/* Markdown 正文 */
+.telemetry {
+  background-image: linear-gradient(#ffffffd9, #ffffffd9),
+    repeating-linear-gradient(0deg, transparent 0 22px, rgba(37, 99, 235, 0.05) 22px 23px);
+}
+
 .prose-spark {
+  color: #273449;
   line-height: 1.75;
   word-break: break-word;
 }
+
 .prose-spark h1,
 .prose-spark h2,
 .prose-spark h3 {
-  color: #e7eefc;
+  color: #0f172a;
   font-weight: 700;
   margin: 1.1em 0 0.45em;
 }
+
 .prose-spark h2 {
   font-size: 1.06rem;
   border-left: 3px solid var(--spark);
   padding-left: 0.55rem;
 }
+
 .prose-spark h3 {
   font-size: 0.98rem;
 }
+
 .prose-spark p {
   margin: 0.5em 0;
 }
+
 .prose-spark ul,
 .prose-spark ol {
   margin: 0.5em 0 0.5em 1.25em;
   list-style: disc;
 }
+
 .prose-spark ol {
   list-style: decimal;
 }
+
 .prose-spark a {
   color: var(--spark);
   text-decoration: underline dotted;
 }
+
 .prose-spark code {
-  background: #0d1530;
+  background: #f1f5f9;
   border: 1px solid var(--hairline);
   border-radius: 4px;
   padding: 0.08em 0.35em;
   font-size: 0.86em;
-  color: #9bd6ff;
+  color: #1d4ed8;
 }
+
 .prose-spark pre {
-  background: #0a0f22;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
   padding: 0.85rem 1rem;
   overflow: auto;
   margin: 0.7em 0;
 }
+
 .prose-spark pre code {
   background: none;
   border: 0;
   padding: 0;
-  color: #c8e6ff;
+  color: #dbeafe;
 }
+
 .prose-spark blockquote {
   border-left: 3px solid var(--ember);
-  background: rgba(251, 146, 60, 0.06);
+  background: rgba(249, 115, 22, 0.08);
   padding: 0.4rem 0.8rem;
   border-radius: 0 8px 8px 0;
   margin: 0.6em 0;
-  color: #e4d4c2;
+  color: #7c2d12;
 }
+
 .prose-spark table {
   border-collapse: collapse;
   margin: 0.7em 0;
   font-size: 0.9em;
 }
+
 .prose-spark th,
 .prose-spark td {
   border: 1px solid var(--hairline);
   padding: 0.35rem 0.6rem;
 }
+
 .prose-spark th {
-  background: #15203a;
-  color: #e7eefc;
+  background: #f1f5f9;
+  color: #0f172a;
 }
+
 .prose-spark sup a {
   color: var(--ember);
   text-decoration: none;
 }
 
-/* 流式输入光标 */
 .caret::after {
-  content: "▌";
+  content: "|";
   color: var(--spark);
   animation: breathe 1s ease-in-out infinite;
   margin-left: 1px;
