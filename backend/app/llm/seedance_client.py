@@ -41,6 +41,9 @@ def create_task(prompt: str, image_url: str | None = None) -> str:
 
 
 def poll_task(task_id: str) -> dict:
+    if not available():
+        return {"status": "degraded", "task_id": task_id,
+                "reason": "ARK_API_KEY/SEEDANCE_MODEL is not configured"}
     """查询一次任务状态:{status, video_url?}。"""
     s = get_settings()
     headers = {"Authorization": f"Bearer {s.ark_api_key}"}
@@ -48,9 +51,9 @@ def poll_task(task_id: str) -> dict:
                      headers=headers, timeout=30)
     r.raise_for_status()
     data = r.json()
-    out = {"status": data.get("status", "running")}
+    out = {"status": data.get("status", "running"), "task_id": task_id}
     if out["status"] == "succeeded":
-        out["video_url"] = data["content"]["video_url"]
+        out["url"] = (data.get("content") or {}).get("video_url")
     if out["status"] == "failed":
         out["error"] = str(data)
     return out
@@ -64,7 +67,7 @@ def gen_video_blocking(prompt: str, image_url: str | None = None,
     while time.time() - t0 < timeout_s:
         st = poll_task(task_id)
         if st["status"] == "succeeded":
-            return st["video_url"]
+            return st["url"]
         if st["status"] == "failed":
             raise RuntimeError(st.get("error", "seedance failed"))
         time.sleep(interval_s)
@@ -84,9 +87,12 @@ async def gen_video_async(prompt: str, image_url: str | None = None,
             st = await asyncio.to_thread(poll_task, task_id)
             tick += 1
             if on_progress:
-                await on_progress(min(95, tick * 7), st["status"])
+                await on_progress({"percent": min(95, tick * 7),
+                                   "status": st["status"],
+                                   "detail": f"Seedance task {st['status']}",
+                                   "task_id": task_id})
             if st["status"] == "succeeded":
-                return {"status": "succeeded", "video_url": st["video_url"], "task_id": task_id}
+                return {"status": "succeeded", "url": st.get("url"), "task_id": task_id}
             if st["status"] == "failed":
                 return {"status": "failed", "error": st.get("error"), "task_id": task_id}
             await asyncio.sleep(3)

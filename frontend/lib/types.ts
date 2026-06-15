@@ -50,7 +50,7 @@ export interface ResourceItem {
     questions?: QuizQuestion[];
     difficulty?: number;
     script?: { title?: string; narration?: string; scenes?: { t: string; visual: string; caption?: string }[]; video_prompt?: string };
-    video?: { status?: string; url?: string; task_id?: string };
+    video?: { status?: string; url?: string; task_id?: string; error?: string; reason?: string };
     manim_code?: string;
     audio_url?: string;
     cover_url?: string;

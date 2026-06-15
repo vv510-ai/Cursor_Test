@@ -38,6 +38,9 @@ try:  # pydantic-settings 可用时走标准路径
         redis_url: str = ""
 
         embedding_backend: str = "auto"  # auto | bge-m3 | iflytek | hash
+        rerank_api_url: str = ""
+        rerank_api_key: str = ""
+        rerank_top_k: int = 5
         demo_mode: str = "auto"          # auto | true | false
         trace_enabled: bool = True       # write backend/runs/{session_id} debug artifacts
         backend_port: int = 8000
@@ -60,6 +63,9 @@ except Exception:  # pragma: no cover - 极端环境兜底(未安装 pydantic-se
             self.milvus_uri = g("MILVUS_URI", "")
             self.redis_url = g("REDIS_URL", "")
             self.embedding_backend = g("EMBEDDING_BACKEND", "auto")
+            self.rerank_api_url = g("RERANK_API_URL", "")
+            self.rerank_api_key = g("RERANK_API_KEY", "")
+            self.rerank_top_k = int(g("RERANK_TOP_K", "5"))
             self.demo_mode = g("DEMO_MODE", "auto")
             self.trace_enabled = g("TRACE_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
             self.backend_port = int(g("BACKEND_PORT", "8000"))
