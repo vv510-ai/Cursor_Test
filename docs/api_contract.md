@@ -1,0 +1,705 @@
+# SparkLearn 前后端接口契约
+
+本文档是前端、后端、Agent 调试共同遵守的接口说明。后续改接口时，必须先改这里，再改代码。
+
+## 1. 基本约定
+
+- 前端地址：`http://127.0.0.1:3000`
+- 后端地址：`http://127.0.0.1:8000`
+- 后端 Swagger：`http://127.0.0.1:8000/docs`
+- 前端统一通过 `/api/*` 请求后端，由 `frontend/app/api/[...path]/route.ts` 代理到 FastAPI。
+- 默认用户：`demo_user`
+- JSON 字段使用 `snake_case`，例如 `user_id`、`quiz_resource_id`。
+- 流式接口使用 SSE，返回 `Content-Type: text/event-stream`。
+- 非流式接口返回普通 JSON。
+
+前端调用封装：
+
+```text
+frontend/lib/api.ts
+  postSSE(path, body, onEvent, onClose)
+  apiGet<T>(path)
+  apiPost<T>(path, body)
+```
+
+前端类型定义：
+
+```text
+frontend/lib/types.ts
+```
+
+后端请求模型：
+
+```text
+backend/app/schemas/core.py
+```
+
+## 2. SSE 事件契约
+
+SSE 每一帧格式：
+
+```text
+data: {"type":"agent_start","agent":"profile","detail":"..."}
+
+```
+
+也就是一行 `data: JSON`，后面跟一个空行。
+
+通用事件字段：
+
+```ts
+type SparkEvent = {
+  type:
+    | "agent_start"
+    | "agent_end"
+    | "agent_token"
+    | "token"
+    | "resource"
+    | "profile"
+    | "path"
+    | "progress"
+    | "citations"
+    | "safety"
+    | "summary"
+    | "error"
+    | "done";
+  ts?: string;
+  agent?: string;
+  label?: string;
+  detail?: string;
+  summary?: string;
+  delta?: string;
+  resource?: ResourceItem;
+  profile?: StudentProfile;
+  path?: PathPlan;
+  items?: string[];
+  text?: string;
+  percent?: number;
+  stage?: string;
+  level?: string;
+  output?: Record<string, unknown>;
+}
+```
+
+事件含义：
+
+| type | 什么时候发 | 前端用途 |
+| --- | --- | --- |
+| `agent_start` | 某个 agent 开始工作 | AgentTrace 节点变为 running |
+| `agent_end` | 某个 agent 结束 | AgentTrace 节点变为 done，保存 output 到 trace |
+| `token` | 答疑文本流式输出 | Chat 逐字追加回答 |
+| `agent_token` | agent 内部 token 输出 | 预留调试用 |
+| `resource` | 生成一个资源卡片 | 资源页/聊天页追加 ResourceCard |
+| `profile` | 画像更新 | ProfileRadar 刷新 |
+| `path` | 路径更新 | PathDag 刷新 |
+| `progress` | 长任务进度 | 视频、OCR、媒体生成进度 |
+| `citations` | 引用来源 | 展示教材/资料来源 |
+| `safety` | 安全或防幻觉提示 | 展示警告或进入 trace |
+| `summary` | 本轮生成总结 | 资源页 note / eval summary |
+| `error` | 后端异常 | 前端展示错误 |
+| `done` | SSE 流结束 | 前端停止 loading |
+
+合法 agent id：
+
+```text
+profile | orchestrator | planner | path | doc | mindmap | quiz | media | tutor | eval
+```
+
+## 3. 核心数据结构
+
+### 3.1 ResourceItem
+
+资源卡片统一结构：
+
+```ts
+type ResourceItem = {
+  id: string;
+  kind: "doc" | "code" | "reading" | "mindmap" | "quiz" | "video" | string;
+  kp: string;
+  title: string;
+  payload: ResourcePayload;
+  citations: string[];
+  created_at?: string;
+}
+```
+
+不同资源类型的 `payload`：
+
+| kind | payload 字段 | 前端组件 |
+| --- | --- | --- |
+| `doc` | `{ markdown, grounded }` | Markdown |
+| `code` | `{ markdown, grounded }` | Markdown |
+| `reading` | `{ markdown, grounded }` | Markdown |
+| `mindmap` | `{ markmap }` | Markmap |
+| `quiz` | `{ questions, difficulty }` | QuizPlayer |
+| `video` | `{ script, video, manim_code, audio_url, cover_url }` | VideoBlock |
+
+### 3.2 QuizQuestion
+
+```ts
+type QuizQuestion = {
+  id: string;
+  type: "single" | "fill" | "judge" | "design" | "complexity";
+  stem: string;
+  options: string[];
+  answer: string;
+  explain?: string;
+  kp: string;
+  difficulty: number;
+  error_tags: string[];
+}
+```
+
+### 3.3 StudentProfile
+
+```ts
+type StudentProfile = {
+  knowledge_mastery: Record<string, number>;
+  cognitive_style: string;
+  error_prone: string[];
+  goal: string;
+  pace: string;
+  difficulty_pref: string;
+  resource_pref: Record<string, number>;
+  metacognition: number | string;
+  version?: number;
+}
+```
+
+### 3.4 PathPlan
+
+```ts
+type PathPlan = {
+  nodes: PathNode[];
+  edges: { from: string; to: string }[];
+  next_kp: string | null;
+  generated_by?: string;
+  updated_at?: string;
+}
+```
+
+```ts
+type PathNode = {
+  id: string;
+  name: string;
+  mastery: number;
+  status: "done" | "ready" | "locked";
+  difficulty: number;
+  score: number;
+  reason: string;
+  order?: number;
+}
+```
+
+## 4. 接口列表
+
+### 4.1 健康检查
+
+```http
+GET /api/health
+```
+
+返回：
+
+```json
+{
+  "status": "ok",
+  "demo_mode": true,
+  "course": "数据结构与算法",
+  "llm": "MockEngine(离线演示)",
+  "app": "SparkLearn 星火学伴"
+}
+```
+
+用途：确认后端是否启动。
+
+### 4.2 知识图谱
+
+```http
+GET /api/kg
+```
+
+返回：
+
+```json
+{
+  "course": "数据结构与算法",
+  "nodes": {
+    "binary_tree": {
+      "name": "二叉树",
+      "difficulty": 3
+    }
+  },
+  "edges": [
+    { "from": "array", "to": "binary_tree" }
+  ]
+}
+```
+
+用途：路径页渲染 DAG。
+
+### 4.3 学生画像
+
+```http
+GET /api/profile/{user_id}
+```
+
+示例：
+
+```http
+GET /api/profile/demo_user
+```
+
+返回：`StudentProfile`
+
+用途：画像面板、路径规划、资源个性化。
+
+### 4.4 学习对话
+
+```http
+POST /api/chat
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+请求：
+
+```json
+{
+  "user_id": "demo_user",
+  "session_id": "s1",
+  "message": "我两周后考试，帮我规划二叉树复习"
+}
+```
+
+返回：SSE 事件流。
+
+典型事件顺序：
+
+```text
+agent_start(profile)
+profile
+agent_end(profile)
+agent_start(orchestrator)
+agent_end(orchestrator)
+...
+done
+```
+
+如果判定为答疑，还会出现：
+
+```text
+agent_start(tutor)
+token
+citations
+agent_end(tutor)
+done
+```
+
+### 4.5 资源生成
+
+```http
+POST /api/resources/generate
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+请求：
+
+```json
+{
+  "user_id": "demo_user",
+  "goal": "两周后期末，希望用可视化方式理解二叉树",
+  "knowledge_points": ["binary_tree"],
+  "kinds": ["doc", "mindmap", "quiz", "video"]
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `user_id` | string | 否 | 默认 `demo_user` |
+| `goal` | string | 否 | 用户自然语言学习目标 |
+| `knowledge_points` | string[] | 是 | 目标知识点 id |
+| `kinds` | string[] | 是 | 要生成的资源类型 |
+
+返回：SSE 事件流。
+
+典型事件顺序：
+
+```text
+agent_start(profile)
+profile
+agent_end(profile)
+agent_start(orchestrator)
+agent_end(orchestrator)
+agent_start(planner)
+agent_end(planner)
+agent_start(path)
+path
+agent_end(path)
+agent_start(doc/mindmap/quiz/media)
+resource
+...
+agent_start(eval)
+summary
+agent_end(eval)
+done
+```
+
+### 4.6 资源列表
+
+```http
+GET /api/resources?user_id=demo_user&kind=quiz&kp=binary_tree&limit=50
+```
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `user_id` | string | 否 | 默认 `demo_user` |
+| `kind` | string | 否 | 资源类型过滤 |
+| `kp` | string | 否 | 知识点过滤 |
+| `limit` | number | 否 | 默认 50 |
+
+返回：
+
+```json
+{
+  "items": [
+    {
+      "id": "quiz_binary_tree_xxx",
+      "kind": "quiz",
+      "kp": "binary_tree",
+      "title": "二叉树·智能题组",
+      "payload": {
+        "questions": []
+      },
+      "citations": [],
+      "created_at": "2026-06-16T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### 4.7 资源详情
+
+```http
+GET /api/resources/{rid}
+```
+
+返回：单个 `ResourceItem`
+
+错误：
+
+```json
+{
+  "detail": "resource not found"
+}
+```
+
+状态码：`404`
+
+### 4.8 视频任务查询
+
+```http
+GET /api/resources/video/task/{task_id}
+```
+
+返回：
+
+```json
+{
+  "status": "running",
+  "task_id": "xxx",
+  "url": "",
+  "error": "",
+  "reason": ""
+}
+```
+
+视频 payload 约定：
+
+```ts
+video?: {
+  status?: "running" | "succeeded" | "failed" | "timeout" | "degraded" | string;
+  url?: string;
+  task_id?: string;
+  error?: string;
+  reason?: string;
+}
+```
+
+前端只读 `video.url` 播放最终视频。
+
+### 4.9 学习路径
+
+```http
+GET /api/path?user_id=demo_user
+```
+
+返回：`PathPlan`
+
+如果数据库没有路径，后端会根据当前画像即时规划并保存。
+
+### 4.10 主动重排路径
+
+```http
+POST /api/path/replan
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "user_id": "demo_user",
+  "reason": "评估后重排"
+}
+```
+
+返回：`PathPlan`
+
+用途：答题后、目标变化后、手动刷新路径。
+
+### 4.11 提交答题
+
+```http
+POST /api/eval/submit
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "user_id": "demo_user",
+  "quiz_resource_id": "quiz_binary_tree_xxx",
+  "kp": "binary_tree",
+  "answers": [
+    {
+      "question_id": "q1",
+      "answer": "A",
+      "correct": true,
+      "seconds": 12
+    }
+  ],
+  "behavior": {
+    "dwell_seconds": 120,
+    "help_clicked": false
+  }
+}
+```
+
+返回：
+
+```json
+{
+  "accuracy": 0.8,
+  "per_kp": [
+    {
+      "kp": "binary_tree",
+      "name": "二叉树",
+      "n": 5,
+      "right": 4,
+      "mastery": 0.72,
+      "level": "..."
+    }
+  ],
+  "error_tags": {},
+  "suggestions": [],
+  "behavior": {}
+}
+```
+
+副作用：
+
+- 写入 `quiz_attempts`
+- 更新 `profiles.knowledge_mastery`
+- 更新 `profiles.error_prone`
+- 写入 `event_logs`
+- 触发路径重排
+
+### 4.12 学情报告
+
+```http
+GET /api/eval/report?user_id=demo_user
+```
+
+返回：
+
+```json
+{
+  "profile": {},
+  "radar": [
+    { "kp": "binary_tree", "name": "二叉树", "mastery": 0.72 }
+  ],
+  "weakest": [],
+  "strongest": [],
+  "attempts": {
+    "total": 3,
+    "accuracy": 0.8
+  },
+  "events": [
+    {
+      "etype": "quiz_eval",
+      "payload": {},
+      "ts": "2026-06-16T00:00:00+00:00"
+    }
+  ]
+}
+```
+
+### 4.13 多模态答疑
+
+```http
+POST /api/tutor
+Content-Type: application/json
+Accept: text/event-stream
+```
+
+请求：
+
+```json
+{
+  "user_id": "demo_user",
+  "question": "为什么 Dijkstra 不能处理负权边？",
+  "image_base64": "",
+  "want": "auto"
+}
+```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `user_id` | string | 用户 id |
+| `question` | string | 文本问题 |
+| `image_base64` | string/null | 预留拍照搜题/OCR |
+| `want` | `"text" | "diagram" | "video" | "auto"` | 希望的回答形态 |
+
+返回：SSE 事件流，常见事件为 `agent_start`、`progress`、`token`、`citations`、`safety`、`agent_end`、`done`。
+
+## 5. 前后端对齐规则
+
+### 5.1 后端为准
+
+接口字段以后端返回为准。前端如果需要新增展示字段，先在本文件补契约，再改后端，再改前端。
+
+### 5.2 SSE 必须有 done
+
+所有 SSE 流最后必须发送：
+
+```json
+{ "type": "done" }
+```
+
+前端依靠它停止 loading。
+
+### 5.3 错误必须有 detail
+
+错误事件统一：
+
+```json
+{
+  "type": "error",
+  "detail": "可读错误说明"
+}
+```
+
+HTTP 错误也尽量使用：
+
+```json
+{
+  "detail": "resource not found"
+}
+```
+
+### 5.4 ResourceCard 不猜字段
+
+前端资源卡片只按 `kind` 判断 payload：
+
+- `mindmap` 必须给 `payload.markmap`
+- `quiz` 必须给 `payload.questions`
+- `video` 必须给 `payload.script` 或 `payload.video`
+- 其他文本类资源必须给 `payload.markdown`
+
+### 5.5 视频 URL 统一叫 url
+
+后端、数据库、前端统一使用：
+
+```json
+{
+  "video": {
+    "url": "https://..."
+  }
+}
+```
+
+不要再使用 `video_url`。
+
+## 6. 调试检查清单
+
+### 6.1 前端页面没反应
+
+检查：
+
+```text
+http://127.0.0.1:3000
+http://127.0.0.1:8000/api/health
+```
+
+然后打开浏览器 Network 面板，看 `/api/...` 请求是否：
+
+- 状态码不是 200
+- SSE 没有 `done`
+- 返回字段和本契约不一致
+
+### 6.2 资源生成了但页面不显示
+
+按顺序查：
+
+1. SSE 是否收到 `resource`
+2. `resource.kind` 是否合法
+3. `resource.payload` 是否有对应字段
+4. 数据库 `resources.payload` 是否保存完整
+5. 前端 `ResourceCard` 是否支持该 kind
+
+### 6.3 最终效果差但不知道哪里错
+
+查看：
+
+```text
+backend/runs/{session_id}/
+```
+
+重点文件：
+
+```text
+request.json
+events.jsonl
+profile.output.json
+planner.output.json
+path.output.json
+resources/
+agent_end/
+final_state.json
+summary.json
+```
+
+## 7. 新增接口前必须补齐的内容
+
+新增接口时，在本文件补：
+
+```text
+1. URL 和 method
+2. 请求 JSON
+3. 返回 JSON
+4. 是否 SSE
+5. 会写哪些数据库表
+6. 前端由哪个组件消费
+7. 失败时返回什么
+```
+
+没有写进契约的字段，前端不要依赖。
