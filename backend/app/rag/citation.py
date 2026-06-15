@@ -1,0 +1,27 @@
+"""引用溯源:把检索 chunk 编号为 [^n],供 Doc/Tutor Agent 生成"强制带出处"内容,
+并产出前端可渲染的 citations 列表。"""
+from __future__ import annotations
+
+
+def build_context(chunks: list[dict]) -> tuple[str, list[dict]]:
+    """返回 (拼接上下文, citations)。上下文中每段以 [n] 开头,提示词要求按 [^n] 引用。"""
+    lines, cites = [], []
+    for i, c in enumerate(chunks, start=1):
+        lines.append(f"[{i}] {c['text']}")
+        cites.append({
+            "index": i,
+            "citation": c.get("citation", ""),
+            "source": c.get("source", ""),
+            "chapter": c.get("chapter", ""),
+            "page": c.get("page", 0),
+            "score": round(float(c.get("score", 0)), 4),
+            "preview": c["text"][:80] + ("…" if len(c["text"]) > 80 else ""),
+        })
+    return "\n---\n".join(lines), cites
+
+
+def used_indices(answer: str, n: int) -> list[int]:
+    """统计答案实际引用了哪些 [^n],供 grounding 与前端高亮。"""
+    import re
+    found = {int(m) for m in re.findall(r"\[\^(\d+)\]", answer) if 0 < int(m) <= n}
+    return sorted(found)

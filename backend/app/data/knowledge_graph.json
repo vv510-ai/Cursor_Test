@@ -1,0 +1,42 @@
+{
+  "course": "数据结构与算法",
+  "nodes": [
+    {"id": "complexity",    "name": "复杂度分析",        "difficulty": 1, "desc": "大O记号、时间/空间复杂度推导"},
+    {"id": "array",         "name": "数组与顺序表",      "difficulty": 1, "desc": "随机访问、插入删除代价"},
+    {"id": "linked_list",   "name": "链表",              "difficulty": 2, "desc": "单/双/循环链表与指针操作"},
+    {"id": "stack",         "name": "栈",                "difficulty": 2, "desc": "LIFO、括号匹配、表达式求值"},
+    {"id": "queue",         "name": "队列",              "difficulty": 2, "desc": "FIFO、循环队列、双端队列"},
+    {"id": "recursion",     "name": "递归与分治",        "difficulty": 3, "desc": "递归三要素、调用栈、分治范式"},
+    {"id": "sorting_basic", "name": "基础排序",          "difficulty": 2, "desc": "冒泡/插入/选择,稳定性"},
+    {"id": "sorting_adv",   "name": "高级排序",          "difficulty": 4, "desc": "归并/快排/堆排,O(n log n)"},
+    {"id": "binary_tree",   "name": "二叉树",            "difficulty": 3, "desc": "性质、四种遍历、存储结构"},
+    {"id": "bst",           "name": "二叉搜索树",        "difficulty": 3, "desc": "查找/插入/删除、退化问题"},
+    {"id": "heap",          "name": "堆与优先队列",      "difficulty": 4, "desc": "完全二叉树、上浮下沉、TopK"},
+    {"id": "hash",          "name": "哈希表",            "difficulty": 3, "desc": "散列函数、冲突处理、负载因子"},
+    {"id": "graph_basic",   "name": "图的基础",          "difficulty": 4, "desc": "邻接矩阵/表、有向无向"},
+    {"id": "graph_traverse","name": "图遍历 BFS/DFS",    "difficulty": 4, "desc": "连通性、拓扑排序"},
+    {"id": "shortest_path", "name": "最短路径",          "difficulty": 5, "desc": "Dijkstra、松弛操作"},
+    {"id": "dp",            "name": "动态规划",          "difficulty": 5, "desc": "最优子结构、状态转移方程"}
+  ],
+  "edges": [
+    {"from": "complexity",    "to": "array"},
+    {"from": "array",         "to": "linked_list"},
+    {"from": "linked_list",   "to": "stack"},
+    {"from": "stack",         "to": "queue"},
+    {"from": "array",         "to": "sorting_basic"},
+    {"from": "stack",         "to": "recursion"},
+    {"from": "recursion",     "to": "sorting_adv"},
+    {"from": "sorting_basic", "to": "sorting_adv"},
+    {"from": "linked_list",   "to": "binary_tree"},
+    {"from": "recursion",     "to": "binary_tree"},
+    {"from": "binary_tree",   "to": "bst"},
+    {"from": "binary_tree",   "to": "heap"},
+    {"from": "heap",          "to": "sorting_adv"},
+    {"from": "array",         "to": "hash"},
+    {"from": "queue",         "to": "graph_basic"},
+    {"from": "binary_tree",   "to": "graph_basic"},
+    {"from": "graph_basic",   "to": "graph_traverse"},
+    {"from": "graph_traverse","to": "shortest_path"},
+    {"from": "recursion",     "to": "dp"}
+  ]
+}

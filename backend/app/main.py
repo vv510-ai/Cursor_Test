@@ -1,0 +1,48 @@
+"""SparkLearn 后端入口(FastAPI)。
+启动时:建表 → 教材语料入库(幂等)→ 挂载 /static(TTS/封面等生成产物)→ 注册路由。
+运行:uvicorn app.main:app --reload --port 8000(backend 目录下)"""
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from .api import chat, evaluate, meta, path, resources, tutor
+from .config import GEN_DIR, STATIC_DIR, get_settings, is_demo
+from .models.db import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    GEN_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        from .rag.ingest import ingest_corpus
+        n = ingest_corpus()
+        print(f"[SparkLearn] 语料入库完成:{n} 个 chunk;demo_mode={is_demo()}")
+    except Exception as exc:                       # 语料缺失不阻断启动
+        print(f"[SparkLearn] 语料入库跳过:{exc}")
+    yield
+
+
+app = FastAPI(title="SparkLearn 星火学伴 · 多智能体个性化学习系统",
+              version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[get_settings().frontend_origin, "http://localhost:3000", "*"],
+    allow_credentials=False, allow_methods=["*"], allow_headers=["*"],
+)
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+for r in (chat.router, resources.router, path.router,
+          tutor.router, evaluate.router, meta.router):
+    app.include_router(r)
+
+
+@app.get("/")
+async def root():
+    return {"app": "SparkLearn", "docs": "/docs", "health": "/api/health"}

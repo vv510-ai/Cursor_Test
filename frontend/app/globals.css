@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── SparkLearn 主题令牌:深空 ink / 电光 spark / 星火 ember ───────────── */
+:root {
+  --ink: #0b1020;
+  --panel: #111a2e;
+  --hairline: #1e2a45;
+  --spark: #38bdf8;
+  --ember: #fb923c;
+  --mint: #34d399;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(56, 189, 248, 0.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(251, 146, 60, 0.05), transparent 55%),
+    var(--ink);
+  color: #c7d2e8;
+  font-feature-settings: "tnum" 1; /* 遥测数字等宽对齐 */
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.35);
+}
+
+/* 细滚动条,贴合控制台质感 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3a5e transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a3a5e;
+  border-radius: 3px;
+}
+
+/* 任务遥测面板的扫描线点缀(签名件氛围,克制) */
+.telemetry {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 22px,
+    rgba(56, 189, 248, 0.025) 22px 23px
+  );
+}
+
+/* Markdown 正文 */
+.prose-spark {
+  line-height: 1.75;
+  word-break: break-word;
+}
+.prose-spark h1,
+.prose-spark h2,
+.prose-spark h3 {
+  color: #e7eefc;
+  font-weight: 700;
+  margin: 1.1em 0 0.45em;
+}
+.prose-spark h2 {
+  font-size: 1.06rem;
+  border-left: 3px solid var(--spark);
+  padding-left: 0.55rem;
+}
+.prose-spark h3 {
+  font-size: 0.98rem;
+}
+.prose-spark p {
+  margin: 0.5em 0;
+}
+.prose-spark ul,
+.prose-spark ol {
+  margin: 0.5em 0 0.5em 1.25em;
+  list-style: disc;
+}
+.prose-spark ol {
+  list-style: decimal;
+}
+.prose-spark a {
+  color: var(--spark);
+  text-decoration: underline dotted;
+}
+.prose-spark code {
+  background: #0d1530;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 0.08em 0.35em;
+  font-size: 0.86em;
+  color: #9bd6ff;
+}
+.prose-spark pre {
+  background: #0a0f22;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  overflow: auto;
+  margin: 0.7em 0;
+}
+.prose-spark pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #c8e6ff;
+}
+.prose-spark blockquote {
+  border-left: 3px solid var(--ember);
+  background: rgba(251, 146, 60, 0.06);
+  padding: 0.4rem 0.8rem;
+  border-radius: 0 8px 8px 0;
+  margin: 0.6em 0;
+  color: #e4d4c2;
+}
+.prose-spark table {
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 0.9em;
+}
+.prose-spark th,
+.prose-spark td {
+  border: 1px solid var(--hairline);
+  padding: 0.35rem 0.6rem;
+}
+.prose-spark th {
+  background: #15203a;
+  color: #e7eefc;
+}
+.prose-spark sup a {
+  color: var(--ember);
+  text-decoration: none;
+}
+
+/* 流式输入光标 */
+.caret::after {
+  content: "▌";
+  color: var(--spark);
+  animation: breathe 1s ease-in-out infinite;
+  margin-left: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

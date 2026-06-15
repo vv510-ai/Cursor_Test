@@ -1,0 +1,70 @@
+"""SQLAlchemy ORM 实体:用户/画像/资源/路径/学习事件/答题记录。"""
+from __future__ import annotations
+
+import datetime as dt
+
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .db import Base
+
+
+def now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), default="同学")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
+class Profile(Base):
+    """≥6 维动态学生画像,JSON 形式整体存取,"随学随新"每次交互增量更新。"""
+    __tablename__ = "profiles"
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, onupdate=now)
+
+
+class Resource(Base):
+    __tablename__ = "resources"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(16))      # doc|mindmap|quiz|code|video|audio|image
+    kp: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(String(200), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    citations: Mapped[list] = mapped_column(JSON, default=list)
+    safety: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
+class PathPlan(Base):
+    __tablename__ = "path_plans"
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)   # {nodes:[], edges:[], generated_by}
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, onupdate=now)
+
+
+class EventLog(Base):
+    """学习行为日志:答题/停留/重看/求助……Eval Agent 与画像更新的数据底座。"""
+    __tablename__ = "event_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    etype: Mapped[str] = mapped_column(String(32))   # answer|dwell|replay|ask|open_resource
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    quiz_resource_id: Mapped[str] = mapped_column(String(64))
+    kp: Mapped[str] = mapped_column(String(64), default="")
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)

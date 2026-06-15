@@ -1,0 +1,93 @@
+# SparkLearn 星火学伴 —— 一键部署
+# 基本栈:docker compose up -d --build        (PostgreSQL + Redis + 后端 + 前端)
+# 向量库:docker compose --profile vector up -d (额外启动 Milvus + etcd + MinIO)
+# 密钥:复制 .env.example 为 .env 后填写;不填写则后端自动进入离线演示模式。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sparklearn
+      POSTGRES_PASSWORD: sparklearn
+      POSTGRES_DB: sparklearn
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sparklearn"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://sparklearn:sparklearn@postgres:5432/sparklearn
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - gen_static:/srv/app/static/gen
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  # ── 可选:Milvus 向量库(--profile vector)。不启用时后端用内存向量存储。 ──
+  etcd:
+    profiles: ["vector"]
+    image: quay.io/coreos/etcd:v3.5.14
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir=/etcd
+    volumes:
+      - etcd_data:/etcd
+
+  minio:
+    profiles: ["vector"]
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+
+  milvus:
+    profiles: ["vector"]
+    image: milvusdb/milvus:v2.4.4
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    depends_on:
+      - etcd
+      - minio
+    ports:
+      - "19530:19530"
+    volumes:
+      - milvus_data:/var/lib/milvus
+
+volumes:
+  pgdata:
+  gen_static:
+  etcd_data:
+  minio_data:
+  milvus_data:

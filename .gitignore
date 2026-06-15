@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+node_modules/
+.next/
+*.db
+backend/app/static/gen/*
+!backend/app/static/gen/.gitkeep
+backend/app/data/vector_store.json
+.venv/
+dist/
+backend/runs/
+runs/
+*.log
