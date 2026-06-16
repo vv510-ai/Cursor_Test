@@ -19,6 +19,7 @@ backend/runs/{session_id}/
 ```
 
 `session_id` 来自请求状态。资源生成接口会自动生成一个随机 session id；聊天接口可以由前端传入。
+前端资源页会在本次生成区显示 `TRACE {session_id}` 与完整 `run_dir`，可以直接按这个编号打开对应目录。
 
 ## 2. 最先看哪个文件
 

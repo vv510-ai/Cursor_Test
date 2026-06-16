@@ -42,6 +42,7 @@ export default function ResourcesPage() {
   const [fresh, setFresh] = useState<ResourceItem[]>([]);
   const [history, setHistory] = useState<ResourceItem[]>([]);
   const [note, setNote] = useState("");
+  const [runInfo, setRunInfo] = useState<{ session_id: string; run_dir: string } | null>(null);
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
 
@@ -62,12 +63,19 @@ export default function ResourcesPage() {
     setBusy(true);
     setFresh([]);
     setNote("");
+    setRunInfo(null);
     setTrace(emptyTrace());
     postSSE(
       "/resources/generate",
       { user_id: USER_ID, goal, knowledge_points: [kp], kinds },
       (ev: SparkEvent) => {
         setTrace((t) => applyTraceEvent(t, ev));
+        if (ev.type === "trace") {
+          setRunInfo({
+            session_id: ev.session_id || "",
+            run_dir: ev.run_dir || "",
+          });
+        }
         if (ev.type === "resource" && ev.resource) setFresh((r) => [...r, ev.resource!]);
         if (ev.type === "summary" && ev.text) setNote(ev.text as string);
         if (ev.type === "error") setNote(`生成异常：${ev.detail || "请查看后端日志"}`);
@@ -155,6 +163,14 @@ export default function ResourcesPage() {
               </button>
             </div>
             {note && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{note}</p>}
+            {runInfo && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-600">TRACE</span>
+                {" "}
+                <span className="font-mono text-slate-900">{runInfo.session_id}</span>
+                {runInfo.run_dir && <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{runInfo.run_dir}</span>}
+              </div>
+            )}
           </div>
         </section>
 

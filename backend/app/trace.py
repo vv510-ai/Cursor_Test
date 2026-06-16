@@ -196,6 +196,10 @@ class TraceRecorder:
         elif etype == "summary":
             entry["title"] = "summary"
             entry["text"] = _preview(event.get("text"))
+        elif etype == "trace":
+            entry["title"] = "trace ready"
+            entry["session_id"] = event.get("session_id")
+            entry["run_dir"] = event.get("run_dir")
         elif etype in {"safety", "error"}:
             entry["title"] = etype
             entry["detail"] = event.get("detail")

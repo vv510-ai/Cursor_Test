@@ -86,7 +86,9 @@ def _post_sse(url: str, payload: dict[str, Any], timeout: float) -> list[dict[st
 
 def _print_event(event: dict[str, Any]) -> None:
     etype = event.get("type")
-    if etype == "agent_start":
+    if etype == "trace":
+        print(f"  trace        {event.get('session_id')} | {event.get('run_dir')}")
+    elif etype == "agent_start":
         print(f"  agent_start  {event.get('agent')}")
     elif etype == "agent_end":
         print(f"  agent_end    {event.get('agent')}: {event.get('summary', '')[:70]}")

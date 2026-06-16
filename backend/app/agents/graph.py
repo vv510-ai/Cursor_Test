@@ -10,6 +10,7 @@ START → profile → orchestrator ─┬─ generate → planner → path → [
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import traceback
 from typing import Any, AsyncIterator
 
@@ -114,6 +115,10 @@ def build_graph():
 _DONE = {"type": "__done__"}
 
 
+def _event_ts() -> str:
+    return dt.datetime.now(dt.timezone.utc).strftime("%H:%M:%S.%f")[:-3]
+
+
 async def run_with_events(state: dict[str, Any]) -> AsyncIterator[dict]:
     """执行编排图并实时产出事件字典流(API 层负责包成 SSE)。"""
     queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -138,6 +143,12 @@ async def run_with_events(state: dict[str, Any]) -> AsyncIterator[dict]:
         finally:
             await queue.put(dict(_DONE))
 
+    await queue.put({
+        "type": "trace",
+        "session_id": trace.session_id,
+        "run_dir": str(trace.run_dir),
+        "ts": _event_ts(),
+    })
     task = asyncio.create_task(runner())
     try:
         while True:

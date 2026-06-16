@@ -61,6 +61,7 @@ type SparkEvent = {
     | "citations"
     | "safety"
     | "summary"
+    | "trace"
     | "error"
     | "done";
   ts?: string;
@@ -78,6 +79,8 @@ type SparkEvent = {
   stage?: string;
   level?: string;
   output?: Record<string, unknown>;
+  session_id?: string;
+  run_dir?: string;
 }
 ```
 
@@ -96,6 +99,7 @@ type SparkEvent = {
 | `citations` | 引用来源 | 展示教材/资料来源 |
 | `safety` | 安全或防幻觉提示 | 展示警告或进入 trace |
 | `summary` | 本轮生成总结 | 资源页 note / eval summary |
+| `trace` | 本次运行调试目录已创建 | 展示 `session_id` 与 `backend/runs/{session_id}` |
 | `error` | 后端异常 | 前端展示错误 |
 | `done` | SSE 流结束 | 前端停止 loading |
 
@@ -661,6 +665,7 @@ $env:PYTHONIOENCODING="utf-8"; .\.venv\Scripts\python.exe tests\test_api_contrac
 6. quiz 是否有 payload.questions
 7. video 是否有 payload.script/video/manim_code
 8. 所有 SSE 是否以 done 结束
+9. trace 是否包含 session_id/run_dir
 ```
 
 ### 6.1 前端页面没反应

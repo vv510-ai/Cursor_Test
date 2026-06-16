@@ -32,6 +32,7 @@ ALLOWED_EVENTS = {
     "citations",
     "safety",
     "summary",
+    "trace",
     "error",
     "done",
 }
@@ -125,6 +126,7 @@ def test_generate_sse_contract():
     ensure_user("contract_user")
 
     events = asyncio.run(_collect(dict(GENERATE_STATE)))
+    assert events[0]["type"] == "trace"
     assert events[-1]["type"] == "done"
     assert sum(1 for e in events if e["type"] == "done") == 1
     assert not [e for e in events if e["type"] == "error"]
@@ -152,6 +154,9 @@ def test_generate_sse_contract():
             assert isinstance(event.get("items"), list), event
         elif event["type"] == "summary":
             assert isinstance(event.get("text"), str) and event["text"], event
+        elif event["type"] == "trace":
+            assert isinstance(event.get("session_id"), str) and event["session_id"], event
+            assert isinstance(event.get("run_dir"), str) and event["run_dir"], event
 
     resources = [event["resource"] for event in events if event["type"] == "resource"]
     assert {"doc", "mindmap", "quiz", "video"} <= {r["kind"] for r in resources}
@@ -165,6 +170,7 @@ def test_tutor_sse_contract():
         "messages": [{"role": "user", "content": "为什么 Dijkstra 不能处理负权边?"}],
         "intent": "tutor",
     }))
+    assert events[0]["type"] == "trace"
     assert events[-1]["type"] == "done"
     assert not [e for e in events if e["type"] == "error"]
     for event in events:

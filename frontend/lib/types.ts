@@ -7,7 +7,7 @@ export interface SparkEvent {
   type:
     | "agent_start" | "agent_end" | "agent_token"
     | "token" | "resource" | "profile" | "path"
-    | "progress" | "citations" | "safety" | "summary"
+    | "progress" | "citations" | "safety" | "summary" | "trace"
     | "error" | "done";
   ts?: string;
   agent?: AgentId | string;
@@ -24,6 +24,8 @@ export interface SparkEvent {
   stage?: string;
   level?: string;
   output?: Record<string, unknown>;
+  session_id?: string;
+  run_dir?: string;
   [k: string]: unknown;
 }
 
