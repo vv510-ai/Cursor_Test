@@ -179,6 +179,41 @@ quiz_attempts
 event_logs
 ```
 
+### 前端 `/api/*` 返回 500
+
+先判断是不是后端问题：
+
+```powershell
+curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:3000/api/health
+```
+
+如果 8000 正常、3000 报错，说明问题在前端代理或 Next 开发服务。今天实测遇到过：
+
+```text
+Cannot find module './379.js'
+Require stack:
+frontend/.next/server/webpack-runtime.js
+```
+
+这是 `.next` 开发缓存损坏，不是业务接口坏。处理方式：
+
+```powershell
+cd C:\Users\26054\Desktop\sparklearn-multiagent\frontend
+# 停掉占用 3000 的旧 npm/next 进程
+Remove-Item .next -Recurse -Force
+npm run dev
+```
+
+重启后再跑：
+
+```powershell
+cd C:\Users\26054\Desktop\sparklearn-multiagent\backend
+$env:PYTHONIOENCODING="utf-8"; .\.venv\Scripts\python.exe scripts\debug_api_flow.py --base-url http://127.0.0.1:3000
+```
+
+如果这条通过，说明浏览器 → Next BFF → FastAPI → SSE 的前后端链路是通的。
+
 ## 4. 文件说明
 
 ```text
