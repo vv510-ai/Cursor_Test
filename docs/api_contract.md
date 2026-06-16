@@ -641,6 +641,28 @@ HTTP 错误也尽量使用：
 
 ## 6. 调试检查清单
 
+### 6.0 自动契约测试
+
+每次改 SSE 事件、ResourceItem、题目结构、视频 payload、路径字段后,先跑：
+
+```powershell
+cd C:\Users\26054\Desktop\sparklearn-multiagent\backend
+$env:PYTHONIOENCODING="utf-8"; .\.venv\Scripts\python.exe tests\test_api_contract.py
+```
+
+这个测试会按本文件契约校验：
+
+```text
+1. SSE type 是否都在白名单内
+2. agent id 是否合法
+3. resource 是否包含 id/kind/kp/title/payload/citations
+4. doc/code/reading 是否有 payload.markdown
+5. mindmap 是否有 payload.markmap
+6. quiz 是否有 payload.questions
+7. video 是否有 payload.script/video/manim_code
+8. 所有 SSE 是否以 done 结束
+```
+
 ### 6.1 前端页面没反应
 
 检查：

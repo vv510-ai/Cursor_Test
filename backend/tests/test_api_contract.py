@@ -1,0 +1,183 @@
+"""API contract checks for SSE events and generated resources.
+
+The goal is to catch frontend/backend drift early: the generation flow may still
+finish, but the UI can break if a resource payload field is renamed or omitted.
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from typing import Any
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from tests._stubs import install  # noqa: E402
+
+install()
+
+from app.agents.graph import run_with_events  # noqa: E402
+from app.models.db import init_db  # noqa: E402
+from app.rag.ingest import ingest_corpus  # noqa: E402
+from app.services.profile_service import ensure_user  # noqa: E402
+
+ALLOWED_EVENTS = {
+    "agent_start",
+    "agent_end",
+    "agent_token",
+    "token",
+    "resource",
+    "profile",
+    "path",
+    "progress",
+    "citations",
+    "safety",
+    "summary",
+    "error",
+    "done",
+}
+
+ALLOWED_AGENTS = {
+    "profile",
+    "orchestrator",
+    "planner",
+    "path",
+    "doc",
+    "mindmap",
+    "quiz",
+    "media",
+    "tutor",
+    "eval",
+}
+
+TEXT_RESOURCE_KINDS = {"doc", "code", "reading"}
+GENERATE_STATE = {
+    "user_id": "contract_user",
+    "session_id": "contract-generate",
+    "messages": [{"role": "user", "content": "请生成二叉树的教程、脑图、题组和讲解视频"}],
+    "knowledge_points": ["binary_tree"],
+    "kinds": ["doc", "mindmap", "quiz", "video"],
+    "intent": "generate",
+}
+
+
+async def _collect(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [event async for event in run_with_events(state)]
+
+
+def _assert_base_event(event: dict[str, Any]) -> None:
+    assert isinstance(event.get("type"), str), f"event.type missing: {event}"
+    assert event["type"] in ALLOWED_EVENTS, f"unknown event type: {event['type']}"
+    if event["type"] != "done":
+        assert "ts" in event, f"non-terminal event should include ts: {event}"
+    if "agent" in event:
+        assert event["agent"] in ALLOWED_AGENTS, f"unknown agent id: {event['agent']}"
+
+
+def _assert_resource(resource: dict[str, Any]) -> None:
+    for key in ("id", "kind", "kp", "title", "payload", "citations"):
+        assert key in resource, f"resource missing {key}: {resource}"
+    assert isinstance(resource["id"], str) and resource["id"]
+    assert isinstance(resource["kind"], str) and resource["kind"]
+    assert isinstance(resource["kp"], str) and resource["kp"]
+    assert isinstance(resource["title"], str) and resource["title"]
+    assert isinstance(resource["payload"], dict), resource
+    assert isinstance(resource["citations"], list), resource
+    assert all(isinstance(c, str) for c in resource["citations"]), resource
+
+    payload = resource["payload"]
+    kind = resource["kind"]
+    if kind in TEXT_RESOURCE_KINDS:
+        assert isinstance(payload.get("markdown"), str) and payload["markdown"].strip(), resource
+        assert isinstance(payload.get("grounded"), bool), resource
+    elif kind == "mindmap":
+        assert isinstance(payload.get("markmap"), str) and payload["markmap"].lstrip().startswith("#"), resource
+    elif kind == "quiz":
+        questions = payload.get("questions")
+        assert isinstance(questions, list) and questions, resource
+        assert isinstance(payload.get("difficulty"), int), resource
+        for q in questions:
+            _assert_quiz_question(q)
+    elif kind == "video":
+        assert any(k in payload for k in ("script", "video", "manim_code")), resource
+        if "script" in payload:
+            script = payload["script"]
+            assert isinstance(script, dict), resource
+            assert isinstance(script.get("title"), str) and script["title"], resource
+            assert isinstance(script.get("narration"), str) and script["narration"], resource
+            assert isinstance(script.get("scenes"), list), resource
+
+
+def _assert_quiz_question(question: dict[str, Any]) -> None:
+    for key in ("id", "type", "stem", "options", "answer", "kp", "difficulty", "error_tags"):
+        assert key in question, f"quiz question missing {key}: {question}"
+    assert question["type"] in {"single", "fill", "judge", "design", "complexity"}, question
+    assert isinstance(question["stem"], str) and question["stem"], question
+    assert isinstance(question["options"], list), question
+    assert isinstance(question["answer"], str) and question["answer"], question
+    assert isinstance(question["kp"], str) and question["kp"], question
+    assert isinstance(question["difficulty"], int), question
+    assert isinstance(question["error_tags"], list), question
+
+
+def test_generate_sse_contract():
+    init_db()
+    ingest_corpus()
+    ensure_user("contract_user")
+
+    events = asyncio.run(_collect(dict(GENERATE_STATE)))
+    assert events[-1]["type"] == "done"
+    assert sum(1 for e in events if e["type"] == "done") == 1
+    assert not [e for e in events if e["type"] == "error"]
+
+    for event in events:
+        _assert_base_event(event)
+        if event["type"] == "agent_start":
+            assert isinstance(event.get("label"), str) and event["label"], event
+            assert isinstance(event.get("detail"), str), event
+        elif event["type"] == "agent_end":
+            assert isinstance(event.get("summary"), str), event
+            assert isinstance(event.get("output"), dict), event
+        elif event["type"] == "resource":
+            _assert_resource(event.get("resource") or {})
+        elif event["type"] == "profile":
+            assert isinstance(event.get("profile"), dict), event
+        elif event["type"] == "path":
+            path = event.get("path")
+            assert isinstance(path, dict) and isinstance(path.get("nodes"), list), event
+            assert isinstance(path.get("edges"), list), event
+        elif event["type"] == "progress":
+            assert isinstance(event.get("stage"), str), event
+            assert isinstance(event.get("percent"), int), event
+        elif event["type"] == "citations":
+            assert isinstance(event.get("items"), list), event
+        elif event["type"] == "summary":
+            assert isinstance(event.get("text"), str) and event["text"], event
+
+    resources = [event["resource"] for event in events if event["type"] == "resource"]
+    assert {"doc", "mindmap", "quiz", "video"} <= {r["kind"] for r in resources}
+
+
+def test_tutor_sse_contract():
+    ensure_user("contract_user")
+    events = asyncio.run(_collect({
+        "user_id": "contract_user",
+        "session_id": "contract-tutor",
+        "messages": [{"role": "user", "content": "为什么 Dijkstra 不能处理负权边?"}],
+        "intent": "tutor",
+    }))
+    assert events[-1]["type"] == "done"
+    assert not [e for e in events if e["type"] == "error"]
+    for event in events:
+        _assert_base_event(event)
+        if event["type"] == "token":
+            assert isinstance(event.get("delta"), str) and event["delta"], event
+        if event["type"] == "citations":
+            assert isinstance(event.get("items"), list) and event["items"], event
+
+
+if __name__ == "__main__":
+    test_generate_sse_contract()
+    print("test_generate_sse_contract ... ok")
+    test_tutor_sse_contract()
+    print("test_tutor_sse_contract ... ok")
+    print("ALL API CONTRACT TESTS PASSED")

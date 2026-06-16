@@ -18,7 +18,7 @@ from app.agents.eval_agent import evaluate_answers  # noqa: E402
 from app.config import is_demo  # noqa: E402
 from app.models.db import init_db  # noqa: E402
 from app.rag.ingest import ingest_corpus  # noqa: E402
-from app.services.profile_service import ensure_user, get_profile  # noqa: E402
+from app.services.profile_service import ensure_user, get_profile, merge_profile  # noqa: E402
 
 
 async def _collect(state: dict) -> list[dict]:
@@ -92,6 +92,7 @@ def test_eval_loop():
     if quiz is None:
         test_generate_pipeline()
         quiz = _QUIZ[0]
+    merge_profile("stu1", {"knowledge_mastery": {"binary_tree": 0.3}})
     before = get_profile("stu1")["knowledge_mastery"]["binary_tree"]
     qs = quiz["payload"]["questions"]
     answers = [{"question_id": q["id"], "kp": q.get("kp", "binary_tree"),
