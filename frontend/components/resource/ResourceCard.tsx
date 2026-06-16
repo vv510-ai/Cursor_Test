@@ -16,10 +16,45 @@ const KIND_META: Record<string, { label: string; code: string; tone: string }> =
   video: { label: "讲解视频", code: "VID", tone: "border-amber-200 bg-amber-50 text-amber-700" },
 };
 
+const TEXT_KINDS = new Set(["doc", "code", "reading"]);
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function resourceIssue(r: ResourceItem): string {
+  const payload = r.payload || {};
+  if (TEXT_KINDS.has(r.kind) && !hasText(payload.markdown)) return "文本内容为空";
+  if (r.kind === "mindmap" && !hasText(payload.markmap)) return "脑图内容为空";
+  if (r.kind === "quiz" && (!Array.isArray(payload.questions) || payload.questions.length === 0)) return "题组为空";
+  if (
+    r.kind === "video" &&
+    !payload.script &&
+    !payload.video &&
+    !payload.manim_code &&
+    !payload.audio_url &&
+    !payload.cover_url
+  ) {
+    return "讲解资源为空";
+  }
+  return "";
+}
+
+function ResourceNotice({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="border-y border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
+      <div className="font-bold">{title}</div>
+      {detail && <div className="mt-1 text-xs leading-5 text-orange-700">{detail}</div>}
+    </div>
+  );
+}
+
 export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceItem; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   const meta = KIND_META[r.kind] || { label: r.kind, code: r.kind.toUpperCase(), tone: "border-slate-200 bg-slate-50 text-slate-600" };
   const grounded = r.payload?.grounded;
+  const issue = resourceIssue(r);
+  const payload = r.payload || {};
 
   return (
     <article className="animate-rise overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -39,6 +74,11 @@ export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceIt
             待复核
           </span>
         )}
+        {issue && (
+          <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-700">
+            缺字段
+          </span>
+        )}
         <span className="rounded-full border border-slate-200 px-2 py-1 font-mono text-xs text-slate-500">
           {open ? "-" : "+"}
         </span>
@@ -46,18 +86,23 @@ export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceIt
 
       {open && (
         <div className="border-t border-slate-200 px-4 py-4">
-          {r.kind === "mindmap" && r.payload.markmap ? (
-            <Markmap markdown={r.payload.markmap} />
-          ) : r.kind === "quiz" && r.payload.questions ? (
-            <QuizPlayer resourceId={r.id} questions={r.payload.questions} />
+          {issue ? (
+            <ResourceNotice title={issue} detail="该资源已保留在资源库中，但当前 payload 缺少前端展示所需字段。" />
+          ) : r.kind === "mindmap" && payload.markmap ? (
+            <Markmap markdown={payload.markmap} />
+          ) : r.kind === "quiz" && payload.questions ? (
+            <QuizPlayer resourceId={r.id} questions={payload.questions} />
           ) : r.kind === "video" ? (
-            <VideoBlock payload={r.payload} />
-          ) : r.payload.markdown ? (
-            <Markdown text={r.payload.markdown} />
+            <VideoBlock payload={payload} />
+          ) : payload.markdown ? (
+            <Markdown text={payload.markdown} />
           ) : (
-            <pre className="overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
-              {JSON.stringify(r.payload, null, 2)}
-            </pre>
+            <div className="space-y-2">
+              <ResourceNotice title="暂未支持的资源类型" detail={`kind=${r.kind}`} />
+              <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">
+                {JSON.stringify(payload, null, 2)}
+              </pre>
+            </div>
           )}
 
           {r.citations?.length > 0 && (

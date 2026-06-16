@@ -8,6 +8,7 @@ export default function Markmap({ markdown }: { markdown: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
+    setFailed(false);
     (async () => {
       try {
         const mm = await getMarkmap();
@@ -27,6 +28,15 @@ export default function Markmap({ markdown }: { markdown: string }) {
       alive = false;
     };
   }, [markdown]);
+
+  if (!markdown.trim()) {
+    return (
+      <div className="border-y border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
+        <div className="font-bold">脑图内容为空</div>
+        <div className="mt-1 text-xs leading-5 text-orange-700">当前资源没有可渲染的 Markdown 层级。</div>
+      </div>
+    );
+  }
 
   if (failed)
     return (

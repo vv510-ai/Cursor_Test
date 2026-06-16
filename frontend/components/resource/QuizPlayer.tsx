@@ -45,6 +45,15 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
   );
   const set = (id: string, v: string) => !submitted && setAnswers((a) => ({ ...a, [id]: v }));
 
+  if (questions.length === 0) {
+    return (
+      <div className="border-y border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
+        <div className="font-bold">题组为空</div>
+        <div className="mt-1 text-xs leading-5 text-orange-700">当前资源没有可作答的问题。</div>
+      </div>
+    );
+  }
+
   async function submit() {
     setBusy(true);
     setSubmitted(true);
