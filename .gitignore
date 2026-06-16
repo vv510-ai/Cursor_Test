@@ -7,6 +7,7 @@ node_modules/
 backend/app/static/gen/*
 !backend/app/static/gen/.gitkeep
 backend/app/data/vector_store.json
+backend/app/data/vector_store_manifest.json
 .venv/
 dist/
 backend/runs/

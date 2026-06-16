@@ -1,0 +1,24 @@
+{
+  "items": [
+    {
+      "id": "video_binary_tree_intro",
+      "type": "video_link",
+      "title": "二叉树入门视频讲解",
+      "url": "https://example.com/resources/binary-tree-intro",
+      "summary": "这段视频适合二叉树入门复习，重点讲根节点、叶子节点、左右子树、二叉搜索树，以及前序、中序、后序和层序遍历的区别。",
+      "content": "当学生问二叉树遍历、递归访问顺序、BST 查找路径时，可以优先引用这个视频。建议配合 06_二叉树与BST 讲义一起使用。",
+      "kp": "binary_tree",
+      "tags": ["video", "binary_tree", "bst", "traversal"]
+    },
+    {
+      "id": "case_queue_bfs",
+      "type": "case_note",
+      "title": "队列与广度优先搜索案例",
+      "url": "https://example.com/resources/queue-bfs-case",
+      "summary": "这个案例把队列的先进先出特性和图的广度优先搜索联系起来，适合解释为什么 BFS 要用队列维护待访问节点。",
+      "content": "当学生已经理解栈和队列，但不清楚 BFS 的层次扩展过程时，可以用这个案例补充图示和伪代码。",
+      "kp": "queue",
+      "tags": ["case", "queue", "bfs", "graph"]
+    }
+  ]
+}

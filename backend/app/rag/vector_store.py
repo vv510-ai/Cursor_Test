@@ -50,6 +50,12 @@ class MemoryStore:
         self.mat = vectors if self.mat is None else np.vstack([self.mat, vectors])
         self.persist()
 
+    def clear(self) -> None:
+        self.meta = []
+        self.mat = None
+        if _PERSIST.exists():
+            _PERSIST.unlink()
+
     def count(self) -> int:
         return len(self.meta)
 
@@ -76,6 +82,16 @@ class MilvusStore:
         self.mc.insert(collection_name=COLLECTION, data=rows)
         self._n += len(rows)
 
+    def clear(self) -> None:
+        try:
+            if self.mc.has_collection(COLLECTION):
+                self.mc.drop_collection(COLLECTION)
+            self.mc.create_collection(COLLECTION, dimension=embedding_dim(), metric_type="COSINE",
+                                      auto_id=True)
+            self._n = 0
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Milvus clear failed, continuing with existing collection: %s", exc)
+
     def count(self) -> int:
         try:
             return self.mc.get_collection_stats(COLLECTION).get("row_count", self._n)
@@ -83,8 +99,15 @@ class MilvusStore:
             return self._n
 
     def search(self, qvec: np.ndarray, top_k: int = 20) -> list[dict]:
-        hits = self.mc.search(collection_name=COLLECTION, data=[qvec.tolist()], limit=top_k,
-                              output_fields=["text", "source", "chapter", "page", "kp"])[0]
+        hits = self.mc.search(
+            collection_name=COLLECTION,
+            data=[qvec.tolist()],
+            limit=top_k,
+            output_fields=[
+                "text", "source", "chapter", "page", "kp",
+                "source_type", "url", "tags", "source_id",
+            ],
+        )[0]
         return [{**h["entity"], "score": float(h["distance"])} for h in hits]
 
     def persist(self) -> None:  # Milvus 自持久化

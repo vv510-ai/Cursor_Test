@@ -1,25 +1,40 @@
-"""知识库构建:解析 seed_corpus 下 Markdown 讲义 → 标题层级+语义混合切片 → 向量化入库。
+"""Build the lightweight RAG knowledge base.
 
-切片策略(对应方案):chunk 300-500 字、重叠 50 字;代码块作为整体单独成块;
-所有 chunk 携带 source/chapter/page/kp 元数据用于引用溯源。
-PDF/PPT 语料可先用 PyMuPDF/Unstructured 转 Markdown 后放入 seed_corpus(见 docs/环境搭建指南)。
+Default course notes live in data/seed_corpus/*.md. Extra sources can be added
+under data/extra_sources as .md, .txt, or .json files. All sources share one
+vector store and carry citation metadata.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
-from ..config import CORPUS_DIR
+from ..config import CORPUS_DIR, DATA_DIR, EXTRA_SOURCES_DIR
 from .embedding import embed_texts
 from .vector_store import get_store
 
 log = logging.getLogger("sparklearn.ingest")
-CHUNK, OVERLAP = 420, 50
+
+CHUNK = 420
+OVERLAP = 50
+MANIFEST = DATA_DIR / "vector_store_manifest.json"
+SUPPORTED_EXTRA = {".md", ".txt", ".json"}
 
 
-def _front_matter(text: str) -> tuple[dict, str]:
-    meta = {"source": "未知讲义", "chapter": "", "kp": "", "license": ""}
+def _front_matter(text: str) -> tuple[dict[str, str], str]:
+    meta = {
+        "source": "未知讲义",
+        "chapter": "",
+        "kp": "",
+        "license": "",
+        "url": "",
+        "type": "markdown",
+        "tags": "",
+    }
     m = re.match(r"^---\n(.*?)\n---\n", text, flags=re.S)
     if m:
         for line in m.group(1).splitlines():
@@ -31,7 +46,6 @@ def _front_matter(text: str) -> tuple[dict, str]:
 
 
 def _split(text: str) -> list[str]:
-    """按 ## 标题切大段,代码块保护,再按长度滑窗。"""
     protected: list[str] = []
 
     def _hold(m: re.Match) -> str:
@@ -52,36 +66,233 @@ def _split(text: str) -> list[str]:
             while i < len(sec):
                 chunks.append(sec[i:i + CHUNK])
                 i += CHUNK - OVERLAP
+
     out: list[str] = []
     for c in chunks:
         def _restore(m: re.Match) -> str:
             return protected[int(m.group(1))]
+
         out.append(re.sub(r"\x00CODE(\d+)\x00", _restore, c).strip())
     return [c for c in out if len(c) > 30]
 
 
-def ingest_corpus(force: bool = False) -> int:
-    """幂等构建:库非空且未 force 则跳过。返回库内 chunk 总数。"""
-    store = get_store()
-    if store.count() > 0 and not force:
-        log.info("知识库已存在(%d chunks),跳过构建", store.count())
-        return store.count()
-    files = sorted(Path(CORPUS_DIR).glob("*.md"))
-    all_chunks: list[dict] = []
-    for f in files:
-        meta, body = _front_matter(f.read_text(encoding="utf-8"))
+def _read_text(path: Path) -> str:
+    for enc in ("utf-8", "utf-8-sig", "gb18030"):
+        try:
+            return path.read_text(encoding=enc)
+        except UnicodeDecodeError:
+            continue
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _source_file_signature(path: Path) -> dict[str, Any]:
+    data = path.read_bytes()
+    try:
+        rel = path.relative_to(DATA_DIR).as_posix()
+    except ValueError:
+        rel = str(path)
+    return {"path": rel, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+def _current_manifest() -> dict[str, Any]:
+    files = sorted(CORPUS_DIR.glob("*.md"))
+    if EXTRA_SOURCES_DIR.exists():
+        files += sorted(
+            p for p in EXTRA_SOURCES_DIR.rglob("*")
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTRA
+        )
+    return {"version": 2, "files": [_source_file_signature(p) for p in files]}
+
+
+def _manifest_matches(current: dict[str, Any]) -> bool:
+    if not MANIFEST.exists():
+        return False
+    try:
+        return json.loads(MANIFEST.read_text(encoding="utf-8")) == current
+    except Exception:
+        return False
+
+
+def _write_manifest(manifest: dict[str, Any]) -> None:
+    MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _tags(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        return [x.strip() for x in value.split(",") if x.strip()]
+    return []
+
+
+def _chunk_record(
+    *,
+    text: str,
+    source: str,
+    chapter: str,
+    kp: str,
+    page: int,
+    source_type: str,
+    url: str = "",
+    tags: list[str] | None = None,
+    source_id: str = "",
+) -> dict[str, Any]:
+    return {
+        "text": text,
+        "source": source,
+        "chapter": chapter,
+        "kp": kp,
+        "page": page,
+        "source_type": source_type,
+        "url": url,
+        "tags": tags or [],
+        "source_id": source_id,
+    }
+
+
+def _load_seed_corpus() -> list[dict[str, Any]]:
+    all_chunks: list[dict[str, Any]] = []
+    for path in sorted(CORPUS_DIR.glob("*.md")):
+        meta, body = _front_matter(_read_text(path))
         for page, piece in enumerate(_split(body), start=1):
-            all_chunks.append({
-                "text": piece,
-                "source": meta.get("source") or f.stem,
-                "chapter": meta.get("chapter") or f.stem,
-                "kp": meta.get("kp", ""),
-                "page": page,
-            })
+            all_chunks.append(_chunk_record(
+                text=piece,
+                source=meta.get("source") or path.stem,
+                chapter=meta.get("chapter") or path.stem,
+                kp=meta.get("kp", ""),
+                page=page,
+                source_type=meta.get("type") or "lecture",
+                url=meta.get("url", ""),
+                tags=_tags(meta.get("tags")),
+                source_id=path.stem,
+            ))
+    return all_chunks
+
+
+def _json_items(path: Path) -> list[dict[str, Any]]:
+    raw = json.loads(_read_text(path))
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    if isinstance(raw, dict) and isinstance(raw.get("items"), list):
+        return [x for x in raw["items"] if isinstance(x, dict)]
+    if isinstance(raw, dict):
+        return [raw]
+    return []
+
+
+def _item_text(item: dict[str, Any]) -> str:
+    parts = [
+        item.get("title", ""),
+        item.get("summary", ""),
+        item.get("content", ""),
+        item.get("transcript", ""),
+        item.get("notes", ""),
+    ]
+    tags = _tags(item.get("tags"))
+    if tags:
+        parts.append("标签：" + "、".join(tags))
+    if item.get("url"):
+        parts.append(f"链接：{item['url']}")
+    return "\n\n".join(str(p).strip() for p in parts if str(p).strip())
+
+
+def _load_json_source(path: Path) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    for i, item in enumerate(_json_items(path), start=1):
+        text = _item_text(item)
+        if not text:
+            continue
+        source_type = str(item.get("type") or "json_source")
+        title = str(item.get("title") or item.get("id") or path.stem)
+        source_id = str(item.get("id") or f"{path.stem}_{i}")
+        kp = str(item.get("kp") or item.get("knowledge_point") or "")
+        url = str(item.get("url") or "")
+        for page, piece in enumerate(_split(text), start=1):
+            chunks.append(_chunk_record(
+                text=piece,
+                source=title,
+                chapter=source_type,
+                kp=kp,
+                page=page,
+                source_type=source_type,
+                url=url,
+                tags=_tags(item.get("tags")),
+                source_id=source_id,
+            ))
+    return chunks
+
+
+def _load_text_source(path: Path) -> list[dict[str, Any]]:
+    meta: dict[str, str] = {}
+    body = _read_text(path)
+    if path.suffix.lower() == ".md":
+        meta, body = _front_matter(body)
+    source = meta.get("source") or meta.get("title") or path.stem
+    source_type = meta.get("type") or ("markdown" if path.suffix.lower() == ".md" else "text")
+    chapter = meta.get("chapter") or ("extra markdown" if path.suffix.lower() == ".md" else "extra text")
+    return [
+        _chunk_record(
+            text=piece,
+            source=source,
+            chapter=chapter,
+            kp=meta.get("kp", ""),
+            page=page,
+            source_type=source_type,
+            url=meta.get("url", ""),
+            tags=_tags(meta.get("tags")),
+            source_id=path.stem,
+        )
+        for page, piece in enumerate(_split(body), start=1)
+    ]
+
+
+def _load_extra_sources() -> list[dict[str, Any]]:
+    if not EXTRA_SOURCES_DIR.exists():
+        return []
+    chunks: list[dict[str, Any]] = []
+    for path in sorted(p for p in EXTRA_SOURCES_DIR.rglob("*") if p.is_file()):
+        suffix = path.suffix.lower()
+        if suffix not in SUPPORTED_EXTRA:
+            continue
+        try:
+            if suffix == ".json":
+                chunks.extend(_load_json_source(path))
+            else:
+                chunks.extend(_load_text_source(path))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("extra source skipped: %s (%s)", path, exc)
+    return chunks
+
+
+def load_all_chunks() -> list[dict[str, Any]]:
+    return _load_seed_corpus() + _load_extra_sources()
+
+
+def ingest_corpus(force: bool = False) -> int:
+    """Build or refresh the vector store. Returns total chunk count."""
+    store = get_store()
+    manifest = _current_manifest()
+    if store.count() > 0 and not force and _manifest_matches(manifest):
+        log.info("knowledge base exists (%d chunks), manifest unchanged", store.count())
+        return store.count()
+
+    if store.count() > 0:
+        log.info("knowledge base manifest changed, rebuilding vector store")
+        clear = getattr(store, "clear", None)
+        if callable(clear):
+            clear()
+
+    all_chunks = load_all_chunks()
     if not all_chunks:
-        log.warning("seed_corpus 为空,知识库未构建")
+        log.warning("no corpus chunks found, knowledge base not built")
         return 0
+
     vecs = embed_texts([c["text"] for c in all_chunks])
     store.upsert(all_chunks, vecs)
-    log.info("知识库构建完成:%d 文件 → %d chunks", len(files), len(all_chunks))
+    _write_manifest(manifest)
+    by_type: dict[str, int] = {}
+    for chunk in all_chunks:
+        key = str(chunk.get("source_type", "unknown"))
+        by_type[key] = by_type.get(key, 0) + 1
+    log.info("knowledge base built: %d chunks (%s)", len(all_chunks), by_type)
     return store.count()

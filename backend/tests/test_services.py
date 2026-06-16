@@ -12,6 +12,9 @@ from app.services.knowledge_graph import (all_kp_ids, prerequisites,  # noqa: E4
                                           topological_order, unlockable)
 from app.services.path_service import plan_path  # noqa: E402
 from app.services.profile_service import default_profile  # noqa: E402
+from app.rag.ingest import ingest_corpus, load_all_chunks  # noqa: E402
+from app.rag.retriever import _format_citation  # noqa: E402
+from app.rag.vector_store import get_store  # noqa: E402
 
 
 def test_bkt_monotonic():
@@ -55,8 +58,28 @@ def test_plan_path_thresholds():
         assert e["from"] in kp_set and e["to"] in kp_set
 
 
+def test_extra_sources_ingest_and_citation():
+    chunks = load_all_chunks()
+    sample = next((c for c in chunks if c.get("source_id") == "video_binary_tree_intro"), None)
+    assert sample is not None, "应读取 extra_sources 里的视频链接样例"
+    assert sample["source_type"] == "video_link"
+    assert sample["kp"] == "binary_tree"
+    assert sample["url"].endswith("/binary-tree-intro")
+    assert "video_link" in _format_citation(sample)
+    assert "https://example.com/resources/binary-tree-intro" in _format_citation(sample)
+
+    total = ingest_corpus(force=True)
+    assert total >= len(chunks)
+    assert get_store().count() == total
+
+
 if __name__ == "__main__":
-    for fn in (test_bkt_monotonic, test_kg_topology, test_plan_path_thresholds):
+    for fn in (
+        test_bkt_monotonic,
+        test_kg_topology,
+        test_plan_path_thresholds,
+        test_extra_sources_ingest_and_citation,
+    ):
         fn()
         print(f"{fn.__name__} ... ok")
     print("ALL SERVICE TESTS PASSED")
