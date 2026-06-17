@@ -71,7 +71,17 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 
 export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: "POST", body: form });
-  if (!res.ok) throw new Error(`UPLOAD ${path} -> ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text || `上传失败: HTTP ${res.status}`;
+    try {
+      const data = JSON.parse(text) as { detail?: string };
+      message = data.detail || message;
+    } catch {
+      /* keep raw response text */
+    }
+    throw new Error(message);
+  }
   return res.json() as Promise<T>;
 }
 

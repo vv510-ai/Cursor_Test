@@ -14,11 +14,11 @@ from ..config import UPLOAD_SOURCES_DIR
 from ..rag.ingest import (
     chunks_for_source,
     ingest_corpus,
-    load_all_chunks,
     supported_upload_suffixes,
     upload_meta_path,
 )
 from ..rag.retriever import retrieve
+from ..rag.vector_store import get_store
 from ..services.profile_service import ensure_user
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -72,7 +72,9 @@ def _uploaded_metas() -> list[tuple[Path, dict[str, Any]]]:
 
 def _chunk_counts() -> dict[str, int]:
     counts: dict[str, int] = {}
-    for chunk in load_all_chunks():
+    store = get_store()
+    metas = getattr(store, "meta", None) or []
+    for chunk in metas:
         source_id = str(chunk.get("source_id") or "")
         if source_id:
             counts[source_id] = counts.get(source_id, 0) + 1
@@ -125,6 +127,9 @@ async def upload_source(
             meta_path.unlink(missing_ok=True)
             ingest_corpus(force=True)
             raise HTTPException(400, "no readable text extracted from file")
+        meta["chunk_count"] = len(chunks)
+        meta["indexed_at"] = datetime.now(timezone.utc).isoformat()
+        _write_json(meta_path, meta)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -155,7 +160,7 @@ async def list_sources(user_id: str = Query("demo_user")):
         if user_id and meta.get("user_id") != user_id:
             continue
         source_id = str(meta.get("id") or "")
-        items.append(_source_response(meta, counts.get(source_id, 0)))
+        items.append(_source_response(meta, int(meta.get("chunk_count") or counts.get(source_id, 0))))
     items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return {"items": items}
 

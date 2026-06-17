@@ -80,6 +80,7 @@ export default function ResourcesPage() {
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [uploadStatus, setUploadStatus] = useState("");
   const [uploadResult, setUploadResult] = useState<KnowledgeUploadResult | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -119,6 +120,7 @@ export default function ResourcesPage() {
     if (!uploadFile || uploadBusy) return;
     setUploadBusy(true);
     setUploadError("");
+    setUploadStatus("正在上传并索引资料...");
     setUploadResult(null);
     const form = new FormData();
     form.append("file", uploadFile);
@@ -133,9 +135,11 @@ export default function ResourcesPage() {
       setFileInputKey((x) => x + 1);
       setSelectedSourceIds((ids) => (ids.includes(result.source.id) ? ids : [result.source.id, ...ids]));
       loadSources();
+      setUploadStatus("");
       if (!goal.trim()) setGoal(`请基于我上传的「${result.source.title}」生成学习资源`);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "上传失败");
+      setUploadStatus("");
     } finally {
       setUploadBusy(false);
     }
@@ -283,6 +287,7 @@ export default function ResourcesPage() {
                   {uploadBusy ? "索引中..." : "上传并索引"}
                 </button>
               </div>
+              {uploadStatus && <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">{uploadStatus}</div>}
               {uploadError && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{uploadError}</div>}
               {uploadResult && (
                 <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
