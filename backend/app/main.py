@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import chat, evaluate, meta, path, resources, tutor
+from .api import chat, debug, evaluate, meta, path, resources, tutor
 from .config import GEN_DIR, STATIC_DIR, get_settings, is_demo
 from .models.db import init_db
 
@@ -38,7 +38,7 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-for r in (chat.router, resources.router, path.router,
+for r in (chat.router, resources.router, path.router, debug.router,
           tutor.router, evaluate.router, meta.router):
     app.include_router(r)
 

@@ -585,6 +585,29 @@ Accept: text/event-stream
 
 返回：SSE 事件流，常见事件为 `agent_start`、`progress`、`token`、`citations`、`safety`、`agent_end`、`done`。
 
+### 4.14 调试报告
+
+```http
+GET /api/debug/runs/{session_id}
+```
+
+返回：
+
+```json
+{
+  "session_id": "5b4d27cd",
+  "run_dir": "C:\\Users\\26054\\Desktop\\sparklearn-multiagent\\backend\\runs\\5b4d27cd",
+  "debug_report": "# SparkLearn Debug Report\n...",
+  "summary": {},
+  "state": {},
+  "agent_status": {},
+  "resources": [],
+  "timeline": []
+}
+```
+
+用途：资源页根据 SSE 的 `trace.session_id` 拉取本次调试包,展示事件统计、资源列表和 `debug_report.md`。
+
 ## 5. 前后端对齐规则
 
 ### 5.1 后端为准

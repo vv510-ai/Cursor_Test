@@ -16,6 +16,7 @@ from tests._stubs import install  # noqa: E402
 install()
 
 from app.agents.graph import run_with_events  # noqa: E402
+from app.api.debug import read_run_report  # noqa: E402
 from app.models.db import init_db  # noqa: E402
 from app.rag.ingest import ingest_corpus  # noqa: E402
 from app.services.profile_service import ensure_user  # noqa: E402
@@ -162,6 +163,21 @@ def test_generate_sse_contract():
     assert {"doc", "mindmap", "quiz", "video"} <= {r["kind"] for r in resources}
 
 
+def test_debug_run_report_contract():
+    init_db()
+    ingest_corpus()
+    ensure_user("contract_user")
+    events = asyncio.run(_collect(dict(GENERATE_STATE, session_id="contract-debug-report")))
+    trace = events[0]
+    report = read_run_report(trace["session_id"])
+    assert report["session_id"] == trace["session_id"]
+    assert report["run_dir"].endswith(trace["session_id"])
+    assert "SparkLearn Debug Report" in report["debug_report"]
+    assert report["summary"]["event_counts"]["resource"] >= 4
+    assert report["resources"], report
+    assert report["timeline"], report
+
+
 def test_tutor_sse_contract():
     ensure_user("contract_user")
     events = asyncio.run(_collect({
@@ -184,6 +200,8 @@ def test_tutor_sse_contract():
 if __name__ == "__main__":
     test_generate_sse_contract()
     print("test_generate_sse_contract ... ok")
+    test_debug_run_report_contract()
+    print("test_debug_run_report_contract ... ok")
     test_tutor_sse_contract()
     print("test_tutor_sse_contract ... ok")
     print("ALL API CONTRACT TESTS PASSED")

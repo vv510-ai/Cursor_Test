@@ -33,6 +33,17 @@ const KINDS: [string, string, string][] = [
   ["video", "讲解视频", "分镜脚本和视频任务"],
 ];
 
+interface TraceRunReport {
+  session_id: string;
+  run_dir: string;
+  debug_report: string;
+  summary?: {
+    event_counts?: Record<string, number>;
+    route?: string[];
+  };
+  resources?: { kind?: string; title?: string; citation_count?: number }[];
+}
+
 export default function ResourcesPage() {
   const [kp, setKp] = useState("binary_tree");
   const [kinds, setKinds] = useState<string[]>(["doc", "mindmap", "quiz", "video"]);
@@ -43,6 +54,10 @@ export default function ResourcesPage() {
   const [history, setHistory] = useState<ResourceItem[]>([]);
   const [note, setNote] = useState("");
   const [runInfo, setRunInfo] = useState<{ session_id: string; run_dir: string } | null>(null);
+  const [traceReport, setTraceReport] = useState<TraceRunReport | null>(null);
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [traceError, setTraceError] = useState("");
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
 
@@ -64,6 +79,9 @@ export default function ResourcesPage() {
     setFresh([]);
     setNote("");
     setRunInfo(null);
+    setTraceReport(null);
+    setTraceOpen(false);
+    setTraceError("");
     setTrace(emptyTrace());
     postSSE(
       "/resources/generate",
@@ -86,6 +104,26 @@ export default function ResourcesPage() {
       },
       () => setBusy(false),
     );
+  }
+
+  async function toggleTraceReport() {
+    if (!runInfo?.session_id) return;
+    if (traceOpen) {
+      setTraceOpen(false);
+      return;
+    }
+    setTraceOpen(true);
+    if (traceReport?.session_id === runInfo.session_id) return;
+    setTraceLoading(true);
+    setTraceError("");
+    try {
+      const report = await apiGet<TraceRunReport>(`/debug/runs/${runInfo.session_id}`);
+      setTraceReport(report);
+    } catch {
+      setTraceError("调试报告读取失败");
+    } finally {
+      setTraceLoading(false);
+    }
   }
 
   const freshIds = new Set(fresh.map((r) => r.id));
@@ -165,10 +203,61 @@ export default function ResourcesPage() {
             {note && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{note}</p>}
             {runInfo && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-600">TRACE</span>
-                {" "}
-                <span className="font-mono text-slate-900">{runInfo.session_id}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-600">TRACE</span>{" "}
+                    <span className="font-mono text-slate-900">{runInfo.session_id}</span>
+                  </div>
+                  <button
+                    onClick={toggleTraceReport}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-[10px] text-slate-600 transition hover:border-blue-300 hover:text-blue-700"
+                  >
+                    {traceOpen ? "收起报告" : "查看报告"}
+                  </button>
+                </div>
                 {runInfo.run_dir && <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{runInfo.run_dir}</span>}
+                {traceOpen && (
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    {traceLoading ? (
+                      <div className="font-mono text-[10px] text-slate-500">REPORT LOADING...</div>
+                    ) : traceError ? (
+                      <div className="text-xs text-rose-600">{traceError}</div>
+                    ) : traceReport ? (
+                      <div className="space-y-3">
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <div>
+                            <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">EVENTS</div>
+                            <div className="mt-0.5 font-mono text-sm text-slate-900">
+                              {Object.values(traceReport.summary?.event_counts || {}).reduce((a, b) => a + b, 0)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">RESOURCES</div>
+                            <div className="mt-0.5 font-mono text-sm text-slate-900">{traceReport.resources?.length || 0}</div>
+                          </div>
+                          <div>
+                            <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">ROUTE</div>
+                            <div className="mt-0.5 truncate text-xs text-slate-700">{traceReport.summary?.route?.join(" → ") || "—"}</div>
+                          </div>
+                        </div>
+                        {traceReport.resources && traceReport.resources.length > 0 && (
+                          <div className="space-y-1">
+                            {traceReport.resources.slice(0, 6).map((r, i) => (
+                              <div key={`${r.kind}-${i}`} className="flex items-center gap-2 text-xs text-slate-600">
+                                <span className="font-mono text-[10px] text-blue-600">{r.kind || "res"}</span>
+                                <span className="min-w-0 flex-1 truncate">{r.title || "untitled"}</span>
+                                <span className="font-mono text-[10px] text-slate-400">C{r.citation_count ?? 0}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+                          {traceReport.debug_report || "debug_report.md 为空"}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
             )}
           </div>
