@@ -608,6 +608,82 @@ GET /api/debug/runs/{session_id}
 
 用途：资源页根据 SSE 的 `trace.session_id` 拉取本次调试包,展示事件统计、资源列表和 `debug_report.md`。
 
+### 4.15 知识资料入库
+
+上传学习资料并立即重建本地向量索引：
+
+```http
+POST /api/knowledge/upload
+Content-Type: multipart/form-data
+```
+
+表单字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `file` | File | 是 | 支持 `.txt`、`.md`、`.pdf`，单文件最大 8MB |
+| `user_id` | string | 否 | 默认 `demo_user` |
+| `kp` | string | 否 | 资料对应知识点，例如 `binary_tree` |
+| `title` | string | 否 | 展示标题，不填则使用文件名 |
+
+返回：
+
+```json
+{
+  "source": {
+    "id": "demo_user_ab12cd34_note",
+    "user_id": "demo_user",
+    "title": "二叉树课堂笔记",
+    "filename": "note.txt",
+    "kp": "binary_tree",
+    "source_type": "uploaded_text",
+    "bytes": 1024,
+    "chunk_count": 3,
+    "status": "indexed",
+    "created_at": "2026-06-17T12:00:00+00:00"
+  },
+  "vector_count": 120,
+  "sample": [
+    {
+      "text": "片段预览...",
+      "citation": "二叉树课堂笔记 p.1"
+    }
+  ]
+}
+```
+
+列出已上传资料：
+
+```http
+GET /api/knowledge/sources?user_id=demo_user
+```
+
+验证检索：
+
+```http
+GET /api/knowledge/search?query=二叉树中序遍历&kp=binary_tree&limit=5
+```
+
+返回：
+
+```json
+{
+  "items": [
+    {
+      "text": "命中的资料片段...",
+      "citation": "二叉树课堂笔记 p.1",
+      "source": "二叉树课堂笔记",
+      "source_id": "demo_user_ab12cd34_note",
+      "source_type": "uploaded_text",
+      "kp": "binary_tree",
+      "score": 0.82
+    }
+  ]
+}
+```
+
+存储位置：上传原文和元数据只保存在本机 `backend/app/data/uploaded_sources/`，该目录被 `.gitignore` 忽略，不提交到 GitHub。
+
 ## 5. 前后端对齐规则
 
 ### 5.1 后端为准

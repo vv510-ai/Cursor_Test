@@ -10,6 +10,8 @@ import os
 import sys
 from typing import Any
 
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from tests._stubs import install  # noqa: E402
 
@@ -17,6 +19,8 @@ install()
 
 from app.agents.graph import run_with_events  # noqa: E402
 from app.api.debug import read_run_report  # noqa: E402
+from app.config import UPLOAD_SOURCES_DIR  # noqa: E402
+from app.main import app  # noqa: E402
 from app.models.db import init_db  # noqa: E402
 from app.rag.ingest import ingest_corpus  # noqa: E402
 from app.services.profile_service import ensure_user  # noqa: E402
@@ -178,6 +182,50 @@ def test_debug_run_report_contract():
     assert report["timeline"], report
 
 
+def test_knowledge_upload_search_contract():
+    init_db()
+    ensure_user("contract_user")
+    source_id = ""
+    try:
+        with TestClient(app) as client:
+            content = (
+                "Contract upload source. Binary tree inorder traversal visits "
+                "left subtree, root, then right subtree. This uploaded note is "
+                "used to verify that user documents are indexed and searchable. "
+            ).encode("utf-8")
+            res = client.post(
+                "/api/knowledge/upload",
+                data={
+                    "user_id": "contract_user",
+                    "kp": "binary_tree",
+                    "title": "Contract Binary Tree Notes",
+                },
+                files={"file": ("contract-binary-tree.txt", content, "text/plain")},
+            )
+            assert res.status_code == 200, res.text
+            payload = res.json()
+            source_id = payload["source"]["id"]
+            assert payload["source"]["status"] == "indexed"
+            assert payload["source"]["chunk_count"] >= 1
+
+            search = client.get(
+                "/api/knowledge/search",
+                params={
+                    "query": "Contract upload source binary tree inorder traversal",
+                    "kp": "binary_tree",
+                    "limit": 5,
+                },
+            )
+            assert search.status_code == 200, search.text
+            items = search.json()["items"]
+            assert any(item["source_id"] == source_id for item in items), items
+    finally:
+        if source_id:
+            for path in UPLOAD_SOURCES_DIR.glob(f"{source_id}*"):
+                path.unlink(missing_ok=True)
+            ingest_corpus(force=True)
+
+
 def test_tutor_sse_contract():
     ensure_user("contract_user")
     events = asyncio.run(_collect({
@@ -202,6 +250,8 @@ if __name__ == "__main__":
     print("test_generate_sse_contract ... ok")
     test_debug_run_report_contract()
     print("test_debug_run_report_contract ... ok")
+    test_knowledge_upload_search_contract()
+    print("test_knowledge_upload_search_contract ... ok")
     test_tutor_sse_contract()
     print("test_tutor_sse_contract ... ok")
     print("ALL API CONTRACT TESTS PASSED")

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentTrace, { applyTraceEvent, emptyTrace, type TraceState } from "@/components/agent/AgentTrace";
 import ResourceCard from "@/components/resource/ResourceCard";
-import { USER_ID, apiGet, postSSE } from "@/lib/api";
+import { USER_ID, apiGet, apiUpload, postSSE } from "@/lib/api";
 import type { ResourceItem, SparkEvent } from "@/lib/types";
 
 const KPS: [string, string][] = [
@@ -44,6 +44,23 @@ interface TraceRunReport {
   resources?: { kind?: string; title?: string; citation_count?: number }[];
 }
 
+interface KnowledgeSource {
+  id: string;
+  title: string;
+  filename: string;
+  kp: string;
+  source_type: string;
+  chunk_count: number;
+  status: string;
+  created_at?: string;
+}
+
+interface KnowledgeUploadResult {
+  source: KnowledgeSource;
+  vector_count: number;
+  sample?: { text: string; citation: string }[];
+}
+
 export default function ResourcesPage() {
   const [kp, setKp] = useState("binary_tree");
   const [kinds, setKinds] = useState<string[]>(["doc", "mindmap", "quiz", "video"]);
@@ -58,6 +75,13 @@ export default function ResourcesPage() {
   const [traceOpen, setTraceOpen] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
   const [traceError, setTraceError] = useState("");
+  const [sources, setSources] = useState<KnowledgeSource[]>([]);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadResult, setUploadResult] = useState<KnowledgeUploadResult | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
 
@@ -67,10 +91,44 @@ export default function ResourcesPage() {
       .catch(() => {});
   }, []);
 
-  useEffect(loadHistory, [loadHistory]);
+  const loadSources = useCallback(() => {
+    apiGet<{ items: KnowledgeSource[] }>(`/knowledge/sources?user_id=${USER_ID}`)
+      .then((d) => setSources(d.items))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+    loadSources();
+  }, [loadHistory, loadSources]);
 
   function toggleKind(k: string) {
     setKinds((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k]));
+  }
+
+  async function uploadKnowledge() {
+    if (!uploadFile || uploadBusy) return;
+    setUploadBusy(true);
+    setUploadError("");
+    setUploadResult(null);
+    const form = new FormData();
+    form.append("file", uploadFile);
+    form.append("user_id", USER_ID);
+    form.append("kp", kp);
+    form.append("title", uploadTitle.trim() || uploadFile.name);
+    try {
+      const result = await apiUpload<KnowledgeUploadResult>("/knowledge/upload", form);
+      setUploadResult(result);
+      setUploadFile(null);
+      setUploadTitle("");
+      setFileInputKey((x) => x + 1);
+      loadSources();
+      if (!goal.trim()) setGoal(`请基于我上传的「${result.source.title}」生成学习资源`);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setUploadBusy(false);
+    }
   }
 
   function generate() {
@@ -183,6 +241,58 @@ export default function ResourcesPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white/80 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-mono text-[10px] tracking-[0.18em] text-blue-600">KNOWLEDGE</div>
+                  <div className="text-sm font-black text-slate-950">上传学习资料</div>
+                </div>
+                <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">TXT / MD / PDF</span>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <input
+                  key={fileInputKey}
+                  type="file"
+                  accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-slate-700"
+                />
+                <input
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="资料标题"
+                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                />
+                <button
+                  onClick={uploadKnowledge}
+                  disabled={!uploadFile || uploadBusy}
+                  className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {uploadBusy ? "索引中..." : "上传并索引"}
+                </button>
+              </div>
+              {uploadError && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{uploadError}</div>}
+              {uploadResult && (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                  已索引 {uploadResult.source.chunk_count} 个片段 · 知识库共 {uploadResult.vector_count} 个片段
+                </div>
+              )}
+              {sources.length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {sources.slice(0, 4).map((source) => (
+                    <div key={source.id} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="truncate text-xs font-bold text-slate-900">{source.title || source.filename}</div>
+                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="font-mono text-blue-600">{source.kp || "general"}</span>
+                        <span>{source.chunk_count} chunks</span>
+                        <span>{source.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">

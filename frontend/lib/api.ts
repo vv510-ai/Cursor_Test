@@ -69,4 +69,10 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`UPLOAD ${path} -> ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
 export const USER_ID = "demo_user";

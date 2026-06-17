@@ -8,13 +8,20 @@ const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 async function proxy(req: NextRequest, { params }: { params: { path: string[] } }) {
   const target = `${BACKEND}/api/${params.path.join("/")}${req.nextUrl.search}`;
-  const init: RequestInit & { duplex?: string } = {
+  const headers = new Headers();
+  const contentType = req.headers.get("content-type");
+  const accept = req.headers.get("accept");
+  if (contentType) headers.set("Content-Type", contentType);
+  if (accept) headers.set("Accept", accept);
+
+  const init: RequestInit = {
     method: req.method,
-    headers: { "Content-Type": req.headers.get("content-type") || "application/json" },
+    headers,
     cache: "no-store",
   };
   if (req.method !== "GET" && req.method !== "HEAD") {
-    init.body = await req.text();
+    const body = await req.arrayBuffer();
+    if (body.byteLength > 0) init.body = body;
   }
   const res = await fetch(target, init);
   return new Response(res.body, {

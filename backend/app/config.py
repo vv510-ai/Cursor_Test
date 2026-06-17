@@ -76,6 +76,7 @@ BASE_DIR = Path(__file__).resolve().parent          # backend/app
 DATA_DIR = BASE_DIR / "data"
 CORPUS_DIR = DATA_DIR / "seed_corpus"
 EXTRA_SOURCES_DIR = DATA_DIR / "extra_sources"
+UPLOAD_SOURCES_DIR = DATA_DIR / "uploaded_sources"
 STATIC_DIR = BASE_DIR / "static"
 GEN_DIR = STATIC_DIR / "gen"
 GEN_DIR.mkdir(parents=True, exist_ok=True)

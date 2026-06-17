@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ..config import CORPUS_DIR, DATA_DIR, EXTRA_SOURCES_DIR
+from ..config import CORPUS_DIR, DATA_DIR, EXTRA_SOURCES_DIR, UPLOAD_SOURCES_DIR
 from .embedding import embed_texts
 from .vector_store import get_store
 
@@ -23,6 +23,7 @@ CHUNK = 420
 OVERLAP = 50
 MANIFEST = DATA_DIR / "vector_store_manifest.json"
 SUPPORTED_EXTRA = {".md", ".txt", ".json"}
+SUPPORTED_UPLOAD = {".md", ".txt", ".pdf"}
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], str]:
@@ -100,6 +101,12 @@ def _current_manifest() -> dict[str, Any]:
         files += sorted(
             p for p in EXTRA_SOURCES_DIR.rglob("*")
             if p.is_file() and p.suffix.lower() in SUPPORTED_EXTRA
+        )
+    if UPLOAD_SOURCES_DIR.exists():
+        files += sorted(
+            p for p in UPLOAD_SOURCES_DIR.rglob("*")
+            if p.is_file()
+            and (p.suffix.lower() in SUPPORTED_UPLOAD or p.name.endswith(".meta.json"))
         )
     return {"version": 2, "files": [_source_file_signature(p) for p in files]}
 
@@ -264,8 +271,115 @@ def _load_extra_sources() -> list[dict[str, Any]]:
     return chunks
 
 
+def upload_meta_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.meta.json")
+
+
+def supported_upload_suffixes() -> set[str]:
+    return set(SUPPORTED_UPLOAD)
+
+
+def _upload_meta(path: Path) -> dict[str, Any]:
+    meta_path = upload_meta_path(path)
+    if not meta_path.exists():
+        return {}
+    try:
+        data = json.loads(_read_text(meta_path))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _read_pdf_pages(path: Path) -> list[tuple[int, str]]:
+    try:
+        from pypdf import PdfReader
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("PDF parsing requires pypdf. Run: pip install pypdf") from exc
+
+    reader = PdfReader(str(path))
+    pages: list[tuple[int, str]] = []
+    for idx, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        if text.strip():
+            pages.append((idx, text))
+    return pages
+
+
+def _load_uploaded_source(path: Path) -> list[dict[str, Any]]:
+    meta = _upload_meta(path)
+    source_id = str(meta.get("id") or path.stem)
+    source = str(meta.get("title") or meta.get("filename") or path.stem)
+    kp = str(meta.get("kp") or "")
+    source_type = str(meta.get("source_type") or f"uploaded_{path.suffix.lower().lstrip('.')}")
+    chapter = str(meta.get("filename") or "uploaded file")
+    url = str(meta.get("url") or "")
+    tags = _tags(meta.get("tags"))
+
+    chunks: list[dict[str, Any]] = []
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        page_items = _read_pdf_pages(path)
+        for page, text in page_items:
+            for piece in _split(text):
+                chunks.append(_chunk_record(
+                    text=piece,
+                    source=source,
+                    chapter=chapter,
+                    kp=kp,
+                    page=page,
+                    source_type=source_type,
+                    url=url,
+                    tags=tags,
+                    source_id=source_id,
+                ))
+        return chunks
+
+    body = _read_text(path)
+    if suffix == ".md":
+        front, body = _front_matter(body)
+        source = str(meta.get("title") or front.get("source") or front.get("title") or source)
+        kp = str(meta.get("kp") or front.get("kp") or kp)
+        source_type = str(meta.get("source_type") or front.get("type") or source_type)
+        url = str(meta.get("url") or front.get("url") or url)
+        tags = _tags(meta.get("tags") or front.get("tags"))
+
+    for page, piece in enumerate(_split(body), start=1):
+        chunks.append(_chunk_record(
+            text=piece,
+            source=source,
+            chapter=chapter,
+            kp=kp,
+            page=page,
+            source_type=source_type,
+            url=url,
+            tags=tags,
+            source_id=source_id,
+        ))
+    return chunks
+
+
+def _load_uploaded_sources() -> list[dict[str, Any]]:
+    if not UPLOAD_SOURCES_DIR.exists():
+        return []
+    chunks: list[dict[str, Any]] = []
+    for path in sorted(p for p in UPLOAD_SOURCES_DIR.rglob("*") if p.is_file()):
+        if path.name.endswith(".meta.json"):
+            continue
+        if path.suffix.lower() not in SUPPORTED_UPLOAD:
+            continue
+        try:
+            chunks.extend(_load_uploaded_source(path))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("uploaded source skipped: %s (%s)", path, exc)
+    return chunks
+
+
+def chunks_for_source(source_id: str) -> list[dict[str, Any]]:
+    return [c for c in load_all_chunks() if c.get("source_id") == source_id]
+
+
 def load_all_chunks() -> list[dict[str, Any]]:
-    return _load_seed_corpus() + _load_extra_sources()
+    return _load_seed_corpus() + _load_extra_sources() + _load_uploaded_sources()
 
 
 def ingest_corpus(force: bool = False) -> int:
