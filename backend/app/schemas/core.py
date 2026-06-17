@@ -17,6 +17,7 @@ class GenerateRequest(BaseModel):
     goal: str = Field(default="", description="学习目标自然语言,如:两周后期末考,先攻克二叉树")
     knowledge_points: list[str] = Field(default_factory=list)
     kinds: list[str] = Field(default_factory=lambda: ["doc", "mindmap", "quiz", "code", "video"])
+    source_ids: list[str] = Field(default_factory=list)
 
 
 class TutorRequest(BaseModel):

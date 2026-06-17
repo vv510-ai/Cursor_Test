@@ -2,22 +2,64 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+
 from .embedding import embed_texts
+from .ingest import chunks_for_source
 from .reranker import rerank
 from .vector_store import get_store
 
 log = logging.getLogger("sparklearn.retriever")
 
 
-def retrieve(query: str, course: str = "ds_algo", top_k: int = 20, final_k: int = 5) -> list[dict]:
-    store = get_store()
+def _clean_ids(source_ids: list[str] | tuple[str, ...] | None) -> list[str]:
+    return [str(x).strip() for x in (source_ids or []) if str(x).strip()]
+
+
+def _hits_from_sources(query: str, source_ids: list[str], top_k: int) -> list[dict]:
+    chunks: list[dict] = []
+    for source_id in source_ids:
+        chunks.extend(chunks_for_source(source_id))
+    if not chunks:
+        return []
+
+    vectors = embed_texts([c.get("text", "") for c in chunks])
     qv = embed_texts([query])[0]
-    hits = store.search(qv, top_k=top_k)
+    scores = vectors @ qv
+    idx = np.argsort(-scores)[:top_k]
+    return [{**chunks[i], "score": float(scores[i])} for i in idx]
+
+
+def retrieve(
+    query: str,
+    course: str = "ds_algo",
+    top_k: int = 20,
+    final_k: int = 5,
+    *,
+    source_ids: list[str] | None = None,
+    kp: str | None = None,
+) -> list[dict]:
+    selected_sources = _clean_ids(source_ids)
+    if selected_sources:
+        hits = _hits_from_sources(query, selected_sources, top_k=max(top_k, final_k * 4))
+    else:
+        store = get_store()
+        qv = embed_texts([query])[0]
+        hits = store.search(qv, top_k=top_k)
+
+    if kp:
+        hits = [hit for hit in hits if not hit.get("kp") or hit.get("kp") == kp]
     if not hits:
         return []
 
     hits, mode = rerank(query, hits, top_k=final_k)
-    log.debug("RAG rerank mode=%s course=%s query=%s", mode, course, query[:80])
+    log.debug(
+        "RAG rerank mode=%s course=%s sources=%s query=%s",
+        mode,
+        course,
+        selected_sources or "-",
+        query[:80],
+    )
 
     for hit in hits:
         hit["citation"] = _format_citation(hit)

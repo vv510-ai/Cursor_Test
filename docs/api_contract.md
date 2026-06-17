@@ -315,7 +315,8 @@ Accept: text/event-stream
   "user_id": "demo_user",
   "goal": "两周后期末，希望用可视化方式理解二叉树",
   "knowledge_points": ["binary_tree"],
-  "kinds": ["doc", "mindmap", "quiz", "video"]
+  "kinds": ["doc", "mindmap", "quiz", "video"],
+  "source_ids": ["demo_user_ab12cd34_note"]
 }
 ```
 
@@ -327,6 +328,7 @@ Accept: text/event-stream
 | `goal` | string | 否 | 用户自然语言学习目标 |
 | `knowledge_points` | string[] | 是 | 目标知识点 id |
 | `kinds` | string[] | 是 | 要生成的资源类型 |
+| `source_ids` | string[] | 否 | 指定已上传资料；为空时使用全局知识库 |
 
 返回：SSE 事件流。
 

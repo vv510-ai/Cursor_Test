@@ -34,10 +34,15 @@ def _persona(profile: dict) -> str:
             f"节奏={profile.get('pace', '常规')}")
 
 
-async def _gen_one(kind: str, kp: str, profile: dict) -> dict:
+async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], goal: str) -> dict:
     name = kp_name(kp)
     label, tpl = _STYLE.get(kind, _STYLE["doc"])
-    chunks = retrieve(f"{name} 概念 操作 复杂度 易错点", final_k=5)
+    chunks = retrieve(
+        f"{name} 概念 操作 复杂度 易错点 {goal}",
+        final_k=5,
+        source_ids=source_ids,
+        kp=kp,
+    )
     ctx, citations = build_context(chunks)
     prompt = (tpl.format(kp=name, persona=_persona(profile))
               + f"\n\n参考资料(回答只可依据这些;引用其编号):\n{ctx}")
@@ -71,11 +76,13 @@ async def run(state: dict) -> dict:
     kps = state.get("knowledge_points") or ["binary_tree"]
     kinds = [k for k in (state.get("kinds") or ["doc"]) if k in _STYLE] or ["doc"]
     profile = state.get("student_profile") or {}
+    source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
+    goal = state.get("learning_goal") or ""
     await agent_start("doc", "文档智能体",
                       f"RAG 检索→引用生成→双层防幻觉校验({'/'.join(kinds)})")
     resources, flags = {}, []
     for kind in kinds:
-        out = await _gen_one(kind, kps[0], profile)
+        out = await _gen_one(kind, kps[0], profile, source_ids=source_ids, goal=goal)
         resources[out["resource"]["id"]] = out["resource"]
         flags += out["flags"]
     n_cite = sum(len(r["citations"]) for r in resources.values())

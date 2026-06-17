@@ -56,10 +56,17 @@ async def run(state: dict) -> dict:
     kp = (state.get("knowledge_points") or ["binary_tree"])[0]
     name = kp_name(kp)
     profile = state.get("student_profile") or {}
+    source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
+    goal = state.get("learning_goal") or ""
     diff = _difficulty_of(profile, kp)
     await agent_start("quiz", "题库智能体", f"「{name}」难度档 {diff},生成 5 题并本地校验")
 
-    chunks = retrieve(f"{name} 易错点 经典题", final_k=3)
+    chunks = retrieve(
+        f"{name} 易错点 经典题 {goal}",
+        final_k=3,
+        source_ids=source_ids,
+        kp=kp,
+    )
     ctx = "\n---\n".join(c["text"][:280] for c in chunks) or "(无)"
     raw = await llm_complete(_PROMPT.format(kp=name, kpid=kp, difficulty=diff, ctx=ctx),
                              role="ultra", temperature=0.6, max_tokens=1800)

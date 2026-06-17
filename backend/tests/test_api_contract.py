@@ -219,6 +219,25 @@ def test_knowledge_upload_search_contract():
             assert search.status_code == 200, search.text
             items = search.json()["items"]
             assert any(item["source_id"] == source_id for item in items), items
+
+        events = asyncio.run(_collect(dict(
+            GENERATE_STATE,
+            session_id="contract-source-generate",
+            kinds=["doc"],
+            source_ids=[source_id],
+            messages=[{"role": "user", "content": "请基于上传资料生成二叉树图文教程"}],
+            learning_goal="基于上传资料生成",
+        )))
+        docs = [
+            event["resource"]
+            for event in events
+            if event["type"] == "resource" and event["resource"]["kind"] == "doc"
+        ]
+        assert docs, events
+        assert any(
+            "Contract Binary Tree Notes" in citation
+            for citation in docs[0]["citations"]
+        ), docs[0]["citations"]
     finally:
         if source_id:
             for path in UPLOAD_SOURCES_DIR.glob(f"{source_id}*"):

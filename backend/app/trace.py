@@ -255,6 +255,7 @@ class TraceRecorder:
             "learning_goal": state.get("learning_goal"),
             "knowledge_points": state.get("knowledge_points") or [],
             "kinds": state.get("kinds") or [],
+            "source_ids": state.get("source_ids") or [],
             "message_count": len(messages),
             "last_user_message": _preview(
                 next((m.get("content") for m in reversed(messages)

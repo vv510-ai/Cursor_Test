@@ -20,8 +20,15 @@ _PROMPT = (
 async def run(state: dict) -> dict:
     kp = (state.get("knowledge_points") or ["binary_tree"])[0]
     name = kp_name(kp)
+    source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
+    goal = state.get("learning_goal") or ""
     await agent_start("mindmap", "思维导图智能体", f"「{name}」→ markmap 交互脑图")
-    chunks = retrieve(f"{name} 概念 性质 操作 易错点", final_k=3)
+    chunks = retrieve(
+        f"{name} 概念 性质 操作 易错点 {goal}",
+        final_k=3,
+        source_ids=source_ids,
+        kp=kp,
+    )
     ctx = "\n---\n".join(c["text"][:300] for c in chunks) or "(无)"
     md = await llm_complete(_PROMPT.format(kp=name, ctx=ctx), role="ultra", temperature=0.4)
     if not md.strip().startswith("#"):

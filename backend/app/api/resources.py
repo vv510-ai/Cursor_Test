@@ -32,6 +32,7 @@ async def generate(req: GenerateRequest):
         "learning_goal": req.goal,
         "knowledge_points": req.knowledge_points,
         "kinds": req.kinds,
+        "source_ids": req.source_ids,
         "intent": "generate",                  # 显式生成,Orchestrator 将尊重该意图
     }
     return sse_response(run_with_events(state))

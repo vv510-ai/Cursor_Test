@@ -82,6 +82,7 @@ export default function ResourcesPage() {
   const [uploadError, setUploadError] = useState("");
   const [uploadResult, setUploadResult] = useState<KnowledgeUploadResult | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
 
@@ -93,7 +94,11 @@ export default function ResourcesPage() {
 
   const loadSources = useCallback(() => {
     apiGet<{ items: KnowledgeSource[] }>(`/knowledge/sources?user_id=${USER_ID}`)
-      .then((d) => setSources(d.items))
+      .then((d) => {
+        setSources(d.items);
+        const live = new Set(d.items.map((item) => item.id));
+        setSelectedSourceIds((ids) => ids.filter((id) => live.has(id)));
+      })
       .catch(() => {});
   }, []);
 
@@ -104,6 +109,10 @@ export default function ResourcesPage() {
 
   function toggleKind(k: string) {
     setKinds((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k]));
+  }
+
+  function toggleSource(id: string) {
+    setSelectedSourceIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   }
 
   async function uploadKnowledge() {
@@ -122,6 +131,7 @@ export default function ResourcesPage() {
       setUploadFile(null);
       setUploadTitle("");
       setFileInputKey((x) => x + 1);
+      setSelectedSourceIds((ids) => (ids.includes(result.source.id) ? ids : [result.source.id, ...ids]));
       loadSources();
       if (!goal.trim()) setGoal(`请基于我上传的「${result.source.title}」生成学习资源`);
     } catch (err) {
@@ -143,7 +153,7 @@ export default function ResourcesPage() {
     setTrace(emptyTrace());
     postSSE(
       "/resources/generate",
-      { user_id: USER_ID, goal, knowledge_points: [kp], kinds },
+      { user_id: USER_ID, goal, knowledge_points: [kp], kinds, source_ids: selectedSourceIds },
       (ev: SparkEvent) => {
         setTrace((t) => applyTraceEvent(t, ev));
         if (ev.type === "trace") {
@@ -280,17 +290,39 @@ export default function ResourcesPage() {
                 </div>
               )}
               {sources.length > 0 && (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {sources.slice(0, 4).map((source) => (
-                    <div key={source.id} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="truncate text-xs font-bold text-slate-900">{source.title || source.filename}</div>
-                      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-                        <span className="font-mono text-blue-600">{source.kp || "general"}</span>
-                        <span>{source.chunk_count} chunks</span>
-                        <span>{source.status}</span>
-                      </div>
-                    </div>
-                  ))}
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>已上传资料</span>
+                    <span className="font-mono">{selectedSourceIds.length} selected</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {sources.slice(0, 4).map((source) => {
+                      const checked = selectedSourceIds.includes(source.id);
+                      return (
+                        <label
+                          key={source.id}
+                          className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition ${
+                            checked ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-200"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSource(source.id)}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-bold text-slate-900">{source.title || source.filename}</span>
+                            <span className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                              <span className="font-mono text-blue-600">{source.kp || "general"}</span>
+                              <span>{source.chunk_count} chunks</span>
+                              <span>{source.status}</span>
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -310,6 +342,11 @@ export default function ResourcesPage() {
                 {busy ? "生成中..." : "开始生成"}
               </button>
             </div>
+            {selectedSourceIds.length > 0 && (
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                本次将优先基于 {selectedSourceIds.length} 份已选资料生成
+              </div>
+            )}
             {note && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{note}</p>}
             {runInfo && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
