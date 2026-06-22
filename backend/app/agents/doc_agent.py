@@ -74,7 +74,11 @@ async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], 
 
 async def run(state: dict) -> dict:
     kps = state.get("knowledge_points") or ["binary_tree"]
-    kinds = [k for k in (state.get("kinds") or ["doc"]) if k in _STYLE] or ["doc"]
+    requested = state.get("kinds") or []
+    kinds = [k for k in requested if k in _STYLE]
+    if requested and not kinds:
+        return {}
+    kinds = kinds or ["doc"]
     profile = state.get("student_profile") or {}
     source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
     goal = state.get("learning_goal") or ""

@@ -45,9 +45,9 @@ export async function getMermaid() {
 }
 
 export async function getMarkmap() {
-  await loadScript("https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js");
-  await loadScript("https://cdn.jsdelivr.net/npm/markmap-lib@0.17.2/dist/browser/index.js");
-  await loadScript("https://cdn.jsdelivr.net/npm/markmap-view@0.17.2/dist/browser/index.js");
+  await loadScript("https://cdn.jsdelivr.net/npm/d3@7.9.0");
+  await loadScript("https://cdn.jsdelivr.net/npm/markmap-lib@0.17.2");
+  await loadScript("https://cdn.jsdelivr.net/npm/markmap-view@0.17.2");
   const g = window as unknown as { markmap?: Window["markmap"] };
   if (!g.markmap?.Markmap || !g.markmap?.Transformer) throw new Error("markmap unavailable");
   return g.markmap;

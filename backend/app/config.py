@@ -85,9 +85,36 @@ RUNS_DIR = BASE_DIR.parent / "runs"
 COURSE_NAME = "数据结构与算法"
 
 
+def _env_file_paths() -> tuple[Path, ...]:
+    """固定读取仓库根目录和 backend 目录的 .env,避免受启动目录影响。"""
+    return (BASE_DIR.parent.parent / ".env", BASE_DIR.parent / ".env")
+
+
+def _load_env_files() -> None:
+    initial_keys = set(os.environ)
+    for env_path in _env_file_paths():
+        if not env_path.exists():
+            continue
+        for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key or key in initial_keys:
+                continue
+            os.environ[key] = value.strip().strip('"').strip("'")
+
+
 @lru_cache
 def get_settings() -> "Settings":
-    return Settings()
+    _load_env_files()
+    env_files = tuple(path for path in _env_file_paths() if path.exists())
+    try:
+        return Settings(_env_file=env_files)  # type: ignore[call-arg]
+    except TypeError:
+        return Settings()
+
 
 
 def is_demo() -> bool:

@@ -27,8 +27,23 @@ async def grounding_check(answer: str, contexts: list[str]) -> dict:
         raw = await llm_complete(_PROMPT.format(ctx=ctx, answer=answer),
                                  role="reasoner", temperature=0, json_mode=True)
         data = parse_json(raw)
-        return {"grounded": bool(data.get("grounded", False)),
-                "unsupported": list(data.get("unsupported", []))[:5],
+        if isinstance(data, list):
+            data = data[0] if data and isinstance(data[0], dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+
+        grounded = data.get("grounded", False)
+        if isinstance(grounded, str):
+            grounded = grounded.lower() in {"1", "true", "yes", "on"}
+
+        unsupported = data.get("unsupported", [])
+        if isinstance(unsupported, str):
+            unsupported = [unsupported]
+        if not isinstance(unsupported, list):
+            unsupported = []
+
+        return {"grounded": bool(grounded),
+                "unsupported": unsupported[:5],
                 "verdict": str(data.get("verdict", ""))}
     except Exception as e:  # noqa: BLE001
         log.warning("grounding 校验失败:%s", e)

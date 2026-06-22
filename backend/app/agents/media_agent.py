@@ -30,6 +30,9 @@ _MANIM_PROMPT = (
 
 
 async def run(state: dict) -> dict:
+    requested = state.get("kinds") or []
+    if requested and not any(k in requested for k in ("video", "audio", "image")):
+        return {}
     kp = (state.get("knowledge_points") or ["binary_tree"])[0]
     name = kp_name(kp)
     await agent_start("media", "媒体智能体", f"「{name}」分镜脚本 → 文生视频/动画 + TTS")

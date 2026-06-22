@@ -2,42 +2,215 @@
 前端 markmap-view 渲染交互式脑图;同时附 Mermaid mindmap 备选语法。"""
 from __future__ import annotations
 
+import re
 import uuid
 
 from ..llm.spark_client import llm_complete
+from ..rag.citation import build_context
+from ..rag.ingest import load_all_chunks
 from ..rag.retriever import retrieve
-from ..services.knowledge_graph import kp_name
+from ..services.bkt import mastery_level
+from ..services.knowledge_graph import kp_name, load_kg, prerequisites, unlockable
 from .emitter import agent_end, agent_start, emit
 
 _PROMPT = (
-    "TASK=mindmap\n"
-    "把知识点「{kp}」整理为思维导图,使用 Markdown 标题层级(# ## ### ####),"
-    "覆盖:基本概念/性质/操作或算法/复杂度/易错点;每个叶子≤12字;"
-    "结合参考资料,只输出 Markdown,不要解释。\n\n参考资料:\n{ctx}\n"
+    "TASK=mindmap_leaf\n"
+    "你只负责展开思维导图中一个概念节点。概念:「{kp}」。\n"
+    "要求:只依据参考资料提炼 3-5 个短要点,不要编造资料外概念;"
+    "每条要点约 6-14 个字,必须是短词组或半句话,不要写完整长句,"
+    "不要一条里塞多个意思;只输出 Markdown 无序列表,每行以 - 开头,"
+    "不要解释、不要前后缀、不要 Markdown 以外的修饰。\n"
+    "格式例子只示范长短,禁止照抄示例词:好「先来先服务 FCFS」「按到达顺序调度」;"
+    "坏「先来先服务(FCFS)是一种最简单的调度算法,它按照进程到达的先后顺序进行调度处理」。\n\n"
+    "参考资料:\n{ctx}\n"
 )
 
 
+def _clean_point(line: str) -> str:
+    line = re.sub(r"^\s*[-*+]\s*", "", line.strip())
+    line = re.sub(r"^\s*\d+[.)、]\s*", "", line)
+    line = line.strip(" `#\t\r\n")
+    return line[:24].strip()
+
+
+def _points_from_text(text: str) -> list[str]:
+    points: list[str] = []
+    for raw in text.splitlines():
+        point = _clean_point(raw)
+        if point and not point.startswith("```") and point not in points:
+            points.append(point)
+        if len(points) >= 5:
+            break
+    return points
+
+
+def _fallback_points(chunks: list[dict]) -> list[str]:
+    text = " ".join((c.get("text") or "")[:240] for c in chunks)
+    parts = re.split(r"[。；;.!?\n]", text)
+    points: list[str] = []
+    for part in parts:
+        point = _clean_point(part)
+        if 4 <= len(point) <= 24 and point not in points:
+            points.append(point)
+        if len(points) >= 3:
+            break
+    return points or ["资料片段不足"]
+
+
+def _outline_nodes(kp: str) -> list[tuple[str, str]]:
+    kg = load_kg()
+    children = kg["adj"].get(kp, [])
+    ordered = [("先修", p) for p in prerequisites(kp)]
+    ordered.append(("当前", kp))
+    ordered.extend(("后续", c) for c in children)
+
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for rel, node_id in ordered:
+        if node_id in kg["nodes"] and node_id not in seen:
+            out.append((rel, node_id))
+            seen.add(node_id)
+    return out
+
+
+def _label_context(profile: dict | None) -> tuple[dict | None, set[str] | None]:
+    if not isinstance(profile, dict):
+        return None, None
+    mastery = profile.get("knowledge_mastery")
+    if not isinstance(mastery, dict):
+        return None, None
+    try:
+        return mastery, set(unlockable(mastery))
+    except Exception:
+        return None, None
+
+
+def _node_label(node_id: str, mastery: dict | None, unlocked: set[str] | None) -> str:
+    name = kp_name(node_id)
+    if not mastery or unlocked is None or node_id not in mastery:
+        return name
+    try:
+        if node_id not in unlocked:
+            return f"{name} 🔒"
+        return f"{name} ✅" if mastery_level(float(mastery[node_id])) == "掌握" else f"{name} ⚠️"
+    except Exception:
+        return name
+
+
+def _has_kp(hit: dict, kp: str) -> bool:
+    values = [x.strip() for x in str(hit.get("kp") or "").split(",") if x.strip()]
+    return kp in values
+
+
+def _allowed_source(hit: dict, source_ids: list[str]) -> bool:
+    if source_ids:
+        return True
+    return hit.get("source") == "《数据结构与算法》讲义"
+
+
+def _with_citation(hit: dict) -> dict:
+    out = dict(hit)
+    if not out.get("citation"):
+        source = out.get("source") or "未知来源"
+        chapter = out.get("chapter") or ""
+        page = out.get("page") or 0
+        out["citation"] = f"{source} · {chapter} p.{page}"
+    out.setdefault("score", 0)
+    return out
+
+
+def _seed_chunks_by_kp(node_id: str, limit: int = 3) -> list[dict]:
+    chunks: list[dict] = []
+    for hit in load_all_chunks():
+        if _has_kp(hit, node_id) and _allowed_source(hit, []):
+            chunks.append(_with_citation(hit))
+        if len(chunks) >= limit:
+            break
+    return chunks
+
+
+def _retrieve_node_chunks(query: str, node_id: str, source_ids: list[str]) -> list[dict]:
+    hits = retrieve(
+        query,
+        top_k=80,
+        final_k=50,
+        source_ids=source_ids,
+    )
+    strict = [_with_citation(hit) for hit in hits if _has_kp(hit, node_id) and _allowed_source(hit, source_ids)]
+    if not source_ids and len(strict) < 2:
+        seen = {(hit.get("source_id"), hit.get("page"), hit.get("text")) for hit in strict}
+        for hit in _seed_chunks_by_kp(node_id):
+            key = (hit.get("source_id"), hit.get("page"), hit.get("text"))
+            if key not in seen:
+                strict.append(hit)
+                seen.add(key)
+            if len(strict) >= 3:
+                break
+    if strict:
+        return strict[:3]
+    if source_ids:
+        return [_with_citation(hit) for hit in hits[:3]]
+    return []
+
+
+async def _expand_node(node_id: str, *, source_ids: list[str], goal: str) -> tuple[list[str], list[dict], str]:
+    name = kp_name(node_id)
+    node_desc = load_kg()["nodes"].get(node_id, {}).get("desc", "")
+    query = f"{name} {node_desc} 概念 性质 操作 算法 复杂度 易错点 {goal}"
+    chunks = _retrieve_node_chunks(query, node_id, source_ids)
+    ctx, citations = build_context(chunks)
+    prompt = _PROMPT.format(kp=name, ctx=ctx or "(无)")
+
+    points: list[str] = []
+    if chunks:
+        try:
+            raw = await llm_complete(prompt, role="lite", temperature=0.2, max_tokens=260)
+            points = _points_from_text(raw)
+        except Exception:
+            points = []
+    if not points:
+        points = _fallback_points(chunks)
+    return points[:5], citations, prompt
+
+
+def _render_markmap(root_name: str, expanded: list[tuple[str, str, list[str]]]) -> str:
+    lines = [f"# {root_name}"]
+    for relation, node_name, points in expanded:
+        lines.append(f"## {relation}:{node_name}")
+        for point in points:
+            lines.append(f"### {point}")
+    return "\n".join(lines)
+
+
 async def run(state: dict) -> dict:
+    requested = state.get("kinds") or []
+    if requested and "mindmap" not in requested:
+        return {}
     kp = (state.get("knowledge_points") or ["binary_tree"])[0]
     name = kp_name(kp)
     source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
     goal = state.get("learning_goal") or ""
+    mastery, unlocked = _label_context(state.get("student_profile"))
     await agent_start("mindmap", "思维导图智能体", f"「{name}」→ markmap 交互脑图")
-    chunks = retrieve(
-        f"{name} 概念 性质 操作 易错点 {goal}",
-        final_k=3,
-        source_ids=source_ids,
-        kp=kp,
-    )
-    ctx = "\n---\n".join(c["text"][:300] for c in chunks) or "(无)"
-    md = await llm_complete(_PROMPT.format(kp=name, ctx=ctx), role="ultra", temperature=0.4)
-    if not md.strip().startswith("#"):
-        md = f"# {name}\n" + md
+    expanded: list[tuple[str, str, list[str]]] = []
+    citations: list[dict] = []
+    prompt_samples: list[str] = []
+    for relation, node_id in _outline_nodes(kp):
+        points, node_citations, prompt = await _expand_node(node_id, source_ids=source_ids, goal=goal)
+        expanded.append((relation, _node_label(node_id, mastery, unlocked), points))
+        citations.extend(node_citations)
+        if relation == "当前":
+            prompt_samples = [prompt[:600]]
+        elif not prompt_samples:
+            prompt_samples.append(prompt[:600])
+
+    md = _render_markmap(_node_label(kp, mastery, unlocked), expanded)
     rid = uuid.uuid4().hex[:12]
     resource = {"id": rid, "kind": "mindmap", "kp": kp,
                 "title": f"{name}·思维导图",
                 "payload": {"markmap": md},
-                "citations": [c.get("citation", "") for c in chunks]}
+                "citations": list(dict.fromkeys(c.get("citation", "") for c in citations if c.get("citation")))}
     await emit({"type": "resource", "resource": resource})
-    await agent_end("mindmap", f"脑图节点 {md.count(chr(10)) + 1} 行,已推送卡片", {"id": rid})
+    await agent_end("mindmap", f"脑图节点 {md.count(chr(10)) + 1} 行,已推送卡片",
+                    {"id": rid, "nodes": len(expanded), "prompt_sample": prompt_samples[:1]})
     return {"generated_resources": {rid: resource}}

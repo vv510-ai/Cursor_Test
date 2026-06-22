@@ -96,27 +96,46 @@ async def llm_stream(prompt: str, *, role: str = "ultra", system: str = "",
         async for d in MockEngine.stream(prompt, role=role):
             yield d
         return
-    model, x2 = MODELS[role]
     messages = ([{"role": "system", "content": system}] if system else []) + \
                [{"role": "user", "content": prompt}]
-    client = _client(x2)
     extra = {"max_tokens": max_tokens} if max_tokens else {}
-
-    def _create():
-        return client.chat.completions.create(
-            model=model, messages=messages, temperature=temperature,
-            stream=True, **extra)
-
-    stream = await asyncio.to_thread(_create)
+    order = [role] + [r for r in _FALLBACK_ORDER if r != role] if role != "reasoner" else [role, "ultra", "lite"]
+    last_err: Exception | None = None
     loop = asyncio.get_running_loop()
-    it = iter(stream)
-    while True:
-        chunk = await loop.run_in_executor(None, lambda: next(it, None))
-        if chunk is None:
-            break
-        delta = chunk.choices[0].delta.content or ""
-        if delta:
-            yield delta
+
+    for r in order:
+        model, x2 = MODELS[r]
+        client = _client(x2)
+
+        def _create():
+            return client.chat.completions.create(
+                model=model, messages=messages, temperature=temperature,
+                stream=True, **extra)
+
+        try:
+            stream = await asyncio.to_thread(_create)
+            it = iter(stream)
+            emitted = False
+            while True:
+                chunk = await loop.run_in_executor(None, lambda: next(it, None))
+                if chunk is None:
+                    break
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta_obj = getattr(choices[0], "delta", None)
+                delta = getattr(delta_obj, "content", None) or ""
+                if delta:
+                    emitted = True
+                    yield delta
+            if emitted:
+                return
+            last_err = RuntimeError(f"spark stream {r} returned empty")
+            log.warning("spark stream %s 返回空,尝试下一档", r)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            log.warning("spark stream %s 调用失败,尝试下一档:%s", r, e)
+    raise RuntimeError(f"星火流式全部档位调用失败: {last_err}")
 
 
 def parse_json(text: str) -> dict | list:

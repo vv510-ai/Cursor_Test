@@ -86,6 +86,11 @@ export default function ResourcesPage() {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
+  const selectedKindNames = useMemo(
+    () => KINDS.filter(([id]) => kinds.includes(id)).map(([, name]) => name),
+    [kinds],
+  );
+  const runStatus = busy ? "生成中" : fresh.length > 0 ? "已生成" : "待生成";
 
   const loadHistory = useCallback(() => {
     apiGet<{ items: ResourceItem[] }>(`/resources?user_id=${USER_ID}`)
@@ -204,15 +209,28 @@ export default function ResourcesPage() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-5">
         <section className="glass-panel overflow-hidden rounded-xl">
-          <div className="border-b border-slate-200 bg-white/72 px-5 py-5">
-            <div className="font-mono text-[10px] tracking-[0.24em] text-blue-600">RESOURCE FORGE</div>
-            <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-slate-950">个性化资源，一次并行生成</h1>
-                <p className="mt-1 text-sm text-slate-500">选择知识点和资源类型，系统会同时生成教程、题组、脑图与讲解脚本。</p>
+          <div className="border-b border-slate-200 bg-white/80 px-5 py-5">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-2xl">
+                <div className="font-mono text-[10px] tracking-[0.24em] text-blue-600">RESOURCE FORGE</div>
+                <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">资源工坊</h1>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {selectedKpName} · {selectedKindNames.length ? selectedKindNames.join(" / ") : "未选择资源类型"}
+                </p>
               </div>
-              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
-                当前：{selectedKpName}
+              <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-[430px]">
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                  <div className="font-mono text-[10px] tracking-[0.16em] text-blue-500">KP</div>
+                  <div className="mt-1 truncate text-sm font-black text-blue-900">{selectedKpName}</div>
+                </div>
+                <div className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2">
+                  <div className="font-mono text-[10px] tracking-[0.16em] text-orange-500">KINDS</div>
+                  <div className="mt-1 text-sm font-black text-orange-900">{kinds.length} / {KINDS.length}</div>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+                  <div className="font-mono text-[10px] tracking-[0.16em] text-emerald-600">STATUS</div>
+                  <div className="mt-1 text-sm font-black text-emerald-900">{runStatus}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -238,22 +256,41 @@ export default function ResourcesPage() {
             </div>
 
             <div>
-              <div className="mb-2 text-sm font-bold text-slate-900">资源类型</div>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-bold text-slate-900">资源类型</div>
+                <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
+                  {kinds.length} selected
+                </span>
+              </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {KINDS.map(([id, name, desc]) => (
-                  <button
-                    key={id}
-                    onClick={() => toggleKind(id)}
-                    className={`rounded-xl border p-3 text-left transition ${
-                      kinds.includes(id)
-                        ? "border-orange-300 bg-orange-50 shadow-sm"
-                        : "border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50/50"
-                    }`}
-                  >
-                    <span className="block text-sm font-bold text-slate-950">{name}</span>
-                    <span className="mt-1 block text-xs text-slate-500">{desc}</span>
-                  </button>
-                ))}
+                {KINDS.map(([id, name, desc]) => {
+                  const selected = kinds.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => toggleKind(id)}
+                      className={`min-h-[92px] rounded-xl border p-3 text-left transition ${
+                        selected
+                          ? "border-orange-300 bg-orange-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-orange-200 hover:bg-orange-50/50"
+                      }`}
+                    >
+                      <span className="flex items-start justify-between gap-3">
+                        <span>
+                          <span className="block text-sm font-bold text-slate-950">{name}</span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-500">{desc}</span>
+                        </span>
+                        <span
+                          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[11px] font-black ${
+                            selected ? "border-orange-300 bg-orange-500 text-white" : "border-slate-200 bg-slate-50 text-transparent"
+                          }`}
+                        >
+                          ✓
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -332,6 +369,25 @@ export default function ResourcesPage() {
               )}
             </div>
 
+            <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-3">
+              <div>
+                <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">TARGET</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-900">{selectedKpName}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">OUTPUT</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-900">
+                  {selectedKindNames.length ? selectedKindNames.join(" / ") : "未选择"}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] tracking-[0.16em] text-slate-500">SOURCE</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-900">
+                  {selectedSourceIds.length ? `${selectedSourceIds.length} 份资料` : "课程知识库"}
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 value={goal}
@@ -344,7 +400,7 @@ export default function ResourcesPage() {
                 disabled={busy || kinds.length === 0}
                 className="min-h-11 rounded-lg bg-orange-500 px-6 text-sm font-black text-white shadow-sm transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "生成中..." : "开始生成"}
+                {busy ? "生成中..." : `生成 ${kinds.length} 类资源`}
               </button>
             </div>
             {selectedSourceIds.length > 0 && (

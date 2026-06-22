@@ -103,6 +103,13 @@ type SparkEvent = {
 | `error` | 后端异常 | 前端展示错误 |
 | `done` | SSE 流结束 | 前端停止 loading |
 
+真实 `resource` 事件帧形态以后端为准,资源对象挂在 `resource` 字段下,不要使用 `data` / `payload` 二次包裹:
+
+```text
+data: {"type":"resource","resource":{"id":"...","kind":"quiz","kp":"binary_tree","title":"...","payload":{},"citations":[]}}
+
+```
+
 合法 agent id：
 
 ```text
@@ -153,6 +160,8 @@ type QuizQuestion = {
   error_tags: string[];
 }
 ```
+
+真实 LLM 可能返回更细的子主题名作为题目 `kp`。后端生成题组时会把每题 `kp` 归一为所属资源的 `kp`,确保 `/api/eval/submit` 更新的是课程知识图谱中的同一个知识点。
 
 ### 3.3 StudentProfile
 

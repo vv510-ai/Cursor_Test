@@ -39,7 +39,7 @@ def _difficulty_of(profile: dict, kp: str) -> int:
 def _validate(q: dict, kp: str) -> dict | None:
     if not isinstance(q, dict) or q.get("type") not in _TYPES or not q.get("stem"):
         return None
-    q.setdefault("kp", kp)
+    q["kp"] = kp
     q.setdefault("options", [])
     q.setdefault("explain", q.get("explanation", ""))
     q.setdefault("error_tags", [])
@@ -53,6 +53,9 @@ def _validate(q: dict, kp: str) -> dict | None:
 
 
 async def run(state: dict) -> dict:
+    requested = state.get("kinds") or []
+    if requested and "quiz" not in requested:
+        return {}
     kp = (state.get("knowledge_points") or ["binary_tree"])[0]
     name = kp_name(kp)
     profile = state.get("student_profile") or {}
@@ -68,10 +71,13 @@ async def run(state: dict) -> dict:
         kp=kp,
     )
     ctx = "\n---\n".join(c["text"][:280] for c in chunks) or "(无)"
-    raw = await llm_complete(_PROMPT.format(kp=name, kpid=kp, difficulty=diff, ctx=ctx),
-                             role="ultra", temperature=0.6, max_tokens=1800)
-    data = parse_json(raw)
-    items = data.get("questions", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    try:
+        raw = await llm_complete(_PROMPT.format(kp=name, kpid=kp, difficulty=diff, ctx=ctx),
+                                 role="ultra", temperature=0.6, max_tokens=1800)
+        data = parse_json(raw)
+        items = data.get("questions", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    except Exception:  # noqa: BLE001
+        items = []
     questions = [v for q in items if (v := _validate(q, kp))]
     if not questions:                                          # 兜底:保证演示链路不空
         fb = dict(_FALLBACK, kp=kp, id=uuid.uuid4().hex[:10])

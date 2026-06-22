@@ -16,7 +16,7 @@ from typing import Any, AsyncIterator
 
 from . import (doc_agent, eval_agent, media_agent, mindmap_agent, orchestrator,
                path_agent, planner_agent, profile_agent, quiz_agent, tutor_agent)
-from .emitter import reset_emitter, set_emitter
+from .emitter import agent_end, emit, reset_emitter, set_emitter
 from .state import LearningState, merge_dict
 from ..trace import TraceRecorder
 
@@ -32,6 +32,19 @@ except Exception:                                          # pragma: no cover
 
 
 # ============================ LangGraph 构图 ============================
+def _guard_gen_node(name: str, fn):
+    async def guarded(state: dict) -> dict:
+        try:
+            return await fn(state)
+        except Exception as exc:  # noqa: BLE001
+            detail = "".join(traceback.format_exception_only(exc)).strip()
+            await emit({"type": "error", "agent": name, "detail": detail})
+            await agent_end(name, f"生成失败,已跳过:{detail[:120]}", {"error": detail})
+            return {"safety_flags": [{"agent": name, "type": "error", "detail": detail}]}
+
+    return guarded
+
+
 def _build_langgraph():
     g = StateGraph(LearningState)
     g.add_node("profile", profile_agent.run)
@@ -39,7 +52,7 @@ def _build_langgraph():
     g.add_node("planner", planner_agent.run)
     g.add_node("path", path_agent.run)
     for name, fn in _GEN_NODES.items():
-        g.add_node(name, fn)
+        g.add_node(name, _guard_gen_node(name, fn))
     g.add_node("eval", eval_agent.run)
     g.add_node("tutor", tutor_agent.run)
 

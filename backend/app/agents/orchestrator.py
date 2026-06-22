@@ -20,6 +20,7 @@ _PROMPT = (
     "用户消息:{msg}\n学习目标(可能为空):{goal}\n"
 )
 _VALID = {"generate", "tutor", "eval", "chat"}
+_GENERATE_HINTS = ("规划", "计划", "学习路径", "复习路径", "复习计划", "学习资源", "生成资源", "全套学习")
 
 
 async def run(state: dict) -> dict:
@@ -28,15 +29,18 @@ async def run(state: dict) -> dict:
     intent = state.get("intent") or ""
     reason = "调用方显式指定"
     if intent not in _VALID:
-        try:
-            raw = await llm_complete(_PROMPT.format(msg=msg, goal=state.get("learning_goal", "")),
-                                     role="reasoner", temperature=0, json_mode=True)
-            data = parse_json(raw)
-            intent = str(data.get("intent", "chat"))
-            reason = str(data.get("reason", ""))
-        except Exception as e:  # noqa: BLE001
-            log.warning("意图识别失败,回退 chat:%s", e)
-            intent, reason = "chat", f"识别异常回退:{e}"
+        if any(k in msg for k in _GENERATE_HINTS):
+            intent, reason = "generate", "命中学习规划/资源生成关键词"
+        else:
+            try:
+                raw = await llm_complete(_PROMPT.format(msg=msg, goal=state.get("learning_goal", "")),
+                                         role="reasoner", temperature=0, json_mode=True)
+                data = parse_json(raw)
+                intent = str(data.get("intent", "chat"))
+                reason = str(data.get("reason", ""))
+            except Exception as e:  # noqa: BLE001
+                log.warning("意图识别失败,回退 chat:%s", e)
+                intent, reason = "chat", f"识别异常回退:{e}"
         if intent not in _VALID:
             intent = "chat"
     plan_hint = {"generate": "并行 fan-out:Doc/Mindmap/Quiz/Media → Eval 质检汇总",
