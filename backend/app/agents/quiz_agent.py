@@ -31,7 +31,7 @@ _FALLBACK = {
 def _difficulty_of(profile: dict, kp: str) -> int:
     m = float((profile.get("knowledge_mastery") or {}).get(kp, 0.3))
     base = 1 + round(m * 4)                                   # 0.3→2,0.8→4
-    if profile.get("difficulty_pref") == "挑战型":
+    if profile.get("difficulty_pref") in {"挑战式", "挑战型"}:
         base += 1
     return max(1, min(5, base))
 
@@ -42,7 +42,11 @@ def _validate(q: dict, kp: str) -> dict | None:
     q["kp"] = kp
     q.setdefault("options", [])
     q.setdefault("explain", q.get("explanation", ""))
-    q.setdefault("error_tags", [])
+    raw_tags = q.get("error_tags")
+    tags = [raw_tags] if isinstance(raw_tags, str) else raw_tags if isinstance(raw_tags, list) else []
+    q["error_tags"] = list(dict.fromkeys(
+        str(tag).strip() for tag in tags if len(str(tag or "").strip()) >= 2
+    ))[:8]
     q["difficulty"] = int(q.get("difficulty", 3) or 3)
     if q["type"] == "single" and len(q["options"]) < 2:
         return None

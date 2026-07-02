@@ -16,6 +16,62 @@ from ..services.profile_service import get_profile, log_event, update_mastery
 from .emitter import agent_end, agent_start, emit
 
 
+def _refresh_mindmap_labels(user_id: str, affected_kps: set[str], profile: dict) -> dict:
+    """Best-effort relabeling; never block quiz grading or path replan."""
+    if not affected_kps:
+        return {"updated": 0, "skipped": 0}
+    try:
+        from .mindmap_agent import refresh_markmap_labels
+    except Exception:
+        return {"updated": 0, "skipped": 0}
+
+    updated = 0
+    skipped = 0
+    with session() as s:
+        rows = (
+            s.query(Resource)
+            .filter(Resource.user_id == user_id, Resource.kind == "mindmap")
+            .all()
+        )
+        for row in rows:
+            try:
+                payload = row.payload if isinstance(row.payload, dict) else {}
+                markmap = payload.get("markmap")
+                if not isinstance(markmap, str) or not markmap.strip():
+                    skipped += 1
+                    continue
+
+                outline = payload.get("outline_node_ids")
+                node_ids = set()
+                if isinstance(outline, list):
+                    for item in outline:
+                        if isinstance(item, dict) and item.get("id"):
+                            node_ids.add(str(item["id"]))
+                        elif isinstance(item, str):
+                            node_ids.add(item)
+                if row.kp:
+                    node_ids.add(row.kp)
+                if node_ids and not (node_ids & affected_kps):
+                    continue
+
+                new_markmap, changed = refresh_markmap_labels(
+                    markmap,
+                    row.kp,
+                    profile,
+                    outline_node_ids=outline if isinstance(outline, list) else None,
+                )
+                if changed:
+                    new_payload = dict(payload)
+                    new_payload["markmap"] = new_markmap
+                    row.payload = new_payload
+                    updated += 1
+            except Exception:
+                skipped += 1
+                continue
+        s.commit()
+    return {"updated": updated, "skipped": skipped}
+
+
 async def run(state: dict) -> dict:
     resources: dict = state.get("generated_resources") or {}
     flags: list = state.get("safety_flags") or []
@@ -50,16 +106,32 @@ def evaluate_answers(user_id: str, answers: list[dict]) -> dict:
     answers: [{question_id, kp, correct, error_tags?, type?, difficulty?}]"""
     per_kp: dict[str, dict] = {}
     error_counter: dict[str, int] = {}
+    items: list[dict] = []
+    affected_kps: set[str] = set()
     for a in answers:
         kp, correct = a.get("kp", ""), bool(a.get("correct"))
         if not kp:
             continue
+        affected_kps.add(kp)
         new_m = update_mastery(user_id, kp, correct)
         d = per_kp.setdefault(kp, {"kp": kp, "name": kp_name(kp), "n": 0, "right": 0})
         d["n"] += 1
         d["right"] += int(correct)
         d["mastery"] = round(new_m, 3)
         d["level"] = mastery_level(new_m)
+        items.append({
+            "question_id": a.get("question_id", ""),
+            "kp": kp,
+            "correct": correct,
+            "answer": a.get("answer", ""),
+            "expected": a.get("expected", ""),
+            "type": a.get("type", ""),
+            "difficulty": a.get("difficulty", 0),
+            "explain": a.get("explain", ""),
+            "error_tags": a.get("error_tags") or [],
+            "mastery": round(new_m, 3),
+            "level": mastery_level(new_m),
+        })
         if not correct:
             for t in a.get("error_tags") or ["未归因"]:
                 error_counter[t] = error_counter.get(t, 0) + 1
@@ -73,7 +145,9 @@ def evaluate_answers(user_id: str, answers: list[dict]) -> dict:
 
     path = plan_path(profile)                            # 据新掌握度重排路径
     save_path(user_id, path)
-    log_event(user_id, "quiz_eval", {"per_kp": per_kp, "errors": error_counter})
+    mindmap_refresh = _refresh_mindmap_labels(user_id, affected_kps, profile)
+    log_event(user_id, "quiz_eval", {"per_kp": per_kp, "errors": error_counter,
+                                     "mindmap_refresh": mindmap_refresh})
 
     total = sum(d["n"] for d in per_kp.values()) or 1
     right = sum(d["right"] for d in per_kp.values())
@@ -87,5 +161,7 @@ def evaluate_answers(user_id: str, answers: list[dict]) -> dict:
     if not suggestions:
         suggestions.append("正确率良好,可沿路径解锁下一知识点,尝试挑战难度 +1。")
     return {"accuracy": round(right / total, 3), "per_kp": list(per_kp.values()),
+            "items": items,
             "error_tags": error_counter, "suggestions": suggestions,
-            "path": path, "profile_version": profile.get("version")}
+            "path": path, "profile_version": profile.get("_version"),
+            "mindmap_refresh": mindmap_refresh}

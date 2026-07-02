@@ -1,6 +1,7 @@
 """Knowledge source APIs for upload, indexing, and retrieval checks."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -14,6 +15,8 @@ from ..config import UPLOAD_SOURCES_DIR
 from ..rag.ingest import (
     chunks_for_source,
     ingest_corpus,
+    source_is_active,
+    source_sha256,
     supported_upload_suffixes,
     upload_meta_path,
 )
@@ -45,6 +48,10 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _source_response(meta: dict[str, Any], chunk_count: int) -> dict[str, Any]:
+    if not source_is_active(meta):
+        status = str(meta.get("status") or "inactive").strip().lower()
+    else:
+        status = "indexed" if chunk_count else "empty"
     return {
         "id": meta.get("id", ""),
         "user_id": meta.get("user_id", ""),
@@ -54,7 +61,7 @@ def _source_response(meta: dict[str, Any], chunk_count: int) -> dict[str, Any]:
         "source_type": meta.get("source_type", ""),
         "bytes": meta.get("bytes", 0),
         "chunk_count": chunk_count,
-        "status": "indexed" if chunk_count else "empty",
+        "status": status,
         "created_at": meta.get("created_at", ""),
     }
 
@@ -81,6 +88,23 @@ def _chunk_counts() -> dict[str, int]:
     return counts
 
 
+def _stored_source_path(meta_path: Path) -> Path:
+    return meta_path.with_name(meta_path.name.removesuffix(".meta.json"))
+
+
+def _duplicate_source(digest: str) -> dict[str, Any] | None:
+    for meta_path, meta in _uploaded_metas():
+        stored = _stored_source_path(meta_path)
+        if not stored.exists():
+            continue
+        try:
+            if source_sha256(stored, meta) == digest:
+                return meta
+        except OSError:
+            continue
+    return None
+
+
 @router.post("/upload")
 async def upload_source(
     file: UploadFile = File(...),
@@ -102,6 +126,13 @@ async def upload_source(
         raise HTTPException(400, "empty file")
 
     UPLOAD_SOURCES_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(data).hexdigest()
+    duplicate = _duplicate_source(digest)
+    if duplicate:
+        raise HTTPException(
+            409,
+            f"duplicate source already exists: {duplicate.get('title') or duplicate.get('filename') or duplicate.get('id')}",
+        )
     source_id = f"{user_id}_{uuid.uuid4().hex[:8]}_{_safe_stem(filename)}"
     stored = UPLOAD_SOURCES_DIR / f"{source_id}{suffix}"
     stored.write_bytes(data)
@@ -114,6 +145,9 @@ async def upload_source(
         "kp": kp,
         "source_type": "uploaded_pdf" if suffix == ".pdf" else "uploaded_text",
         "bytes": len(data),
+        "sha256": digest,
+        "status": "active",
+        "active": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     meta_path = upload_meta_path(stored)
@@ -160,7 +194,8 @@ async def list_sources(user_id: str = Query("demo_user")):
         if user_id and meta.get("user_id") != user_id:
             continue
         source_id = str(meta.get("id") or "")
-        items.append(_source_response(meta, int(meta.get("chunk_count") or counts.get(source_id, 0))))
+        chunk_count = 0 if not source_is_active(meta) else int(meta.get("chunk_count") or counts.get(source_id, 0))
+        items.append(_source_response(meta, chunk_count))
     items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return {"items": items}
 
@@ -172,9 +207,12 @@ async def search_knowledge(
     limit: int = Query(5, ge=1, le=20),
 ):
     ingest_corpus()
-    hits = retrieve(query, top_k=max(20, limit * 4), final_k=max(limit * 2, limit))
-    if kp:
-        hits = [hit for hit in hits if hit.get("kp") == kp]
+    hits = retrieve(
+        query,
+        top_k=max(20, limit * 4),
+        final_k=max(limit * 2, limit),
+        kp=kp,
+    )
     return {
         "items": [
             {

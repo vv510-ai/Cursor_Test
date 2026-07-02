@@ -3,6 +3,7 @@
 泛化承担三类文本资源:doc(图文教程)/ code(代码示例)/ reading(拓展阅读)。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from ..llm.spark_client import llm_complete
@@ -27,11 +28,50 @@ _STYLE = {
                 "事实性表述用 [^n] 标注来源;贴合画像:{persona}。"),
 }
 
+_DOC_TIMEOUT_S = 75
+_GROUNDING_TIMEOUT_S = 12
+
 
 def _persona(profile: dict) -> str:
     return (f"认知风格={profile.get('cognitive_style', '视觉型')},"
             f"难度偏好={profile.get('difficulty_pref', '循序渐进')},"
             f"节奏={profile.get('pace', '常规')}")
+
+
+def _compact(text: str, limit: int = 180) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "..."
+
+
+def _rag_fallback_doc(name: str, chunks: list[dict], kind: str) -> str:
+    title = "图文教程" if kind == "doc" else "学习资料"
+    lines = [
+        f"# {name}·{title}",
+        "",
+        "> 生成模型响应超时，系统已基于当前检索到的教材片段生成可追溯降级版。",
+        "",
+        "## 核心教材片段",
+    ]
+    if not chunks:
+        lines += ["", "- 当前知识库没有检索到可用片段，请补充课程资料后重新生成。"]
+    else:
+        for i, chunk in enumerate(chunks[:5], 1):
+            lines.append(f"- {_compact(chunk.get('text', ''))} [^{i}]")
+    lines += [
+        "",
+        "## 学习建议",
+        f"- 先按上面的教材片段梳理「{name}」的定义、操作和复杂度。",
+        "- 再结合题组检查边界条件、概念区分和时间复杂度。",
+        "- 需要完整讲义时，可稍后重试生成或切换到演示模式。",
+    ]
+    return "\n".join(lines)
+
+
+def _ensure_visible_citations(md: str, n_citations: int) -> str:
+    if n_citations <= 0 or used_indices(md, n_citations):
+        return md
+    refs = " ".join(f"[^{i}]" for i in range(1, min(n_citations, 3) + 1))
+    return md.rstrip() + f"\n\n## 引用说明\n本文核心概念、算法操作和复杂度说明来自检索到的课程资料 {refs}。"
 
 
 async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], goal: str) -> dict:
@@ -46,13 +86,37 @@ async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], 
     ctx, citations = build_context(chunks)
     prompt = (tpl.format(kp=name, persona=_persona(profile))
               + f"\n\n参考资料(回答只可依据这些;引用其编号):\n{ctx}")
-    md = await llm_complete(prompt, role="ultra", temperature=0.5, max_tokens=2200)
+    flags = []
+    fallback = False
+    try:
+        md = await asyncio.wait_for(
+            llm_complete(prompt, role="ultra", temperature=0.5, max_tokens=1800),
+            timeout=_DOC_TIMEOUT_S,
+        )
+    except Exception as exc:  # noqa: BLE001
+        fallback = True
+        md = _rag_fallback_doc(name, chunks, kind)
+        flags.append({"agent": "doc", "kind": kind, "type": "llm_fallback",
+                      "detail": f"文档生成超时或失败,已使用 RAG 降级文档:{exc}"})
 
     # 防幻觉第一层:答案-证据一致性(X2 深度推理)
-    ground = await grounding_check(md, [c["text"] for c in chunks])
+    if fallback:
+        ground = {"grounded": False, "unsupported": [],
+                  "verdict": "LLM 生成超时,已使用检索片段降级输出,建议人工复核。"}
+    else:
+        try:
+            ground = await asyncio.wait_for(
+                grounding_check(md, [c["text"] for c in chunks]),
+                timeout=_GROUNDING_TIMEOUT_S,
+            )
+        except Exception as exc:  # noqa: BLE001
+            ground = {"grounded": False, "unsupported": [],
+                      "verdict": f"grounding 校验超时或失败:{exc}"}
+            flags.append({"agent": "doc", "kind": kind, "type": "grounding_timeout",
+                          "detail": ground["verdict"]})
+    md = _ensure_visible_citations(md, len(citations))
     # 防幻觉第二层:内容安全过滤(本地词表 + 讯飞审核挂接)
     safety = safety_filter(md)
-    flags = []
     if not ground.get("grounded", True):
         flags.append({"agent": "doc", "kind": kind, "type": "grounding",
                       "detail": ground.get("verdict", ""), "unsupported": ground.get("unsupported", [])})

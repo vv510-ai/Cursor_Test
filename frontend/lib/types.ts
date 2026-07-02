@@ -67,11 +67,13 @@ export interface StudentProfile {
   cognitive_style: string;
   error_prone: string[];
   goal: string;
-  pace: string;
+  pace: { daily_minutes?: number; frequency?: string; focus?: string } | string;
   difficulty_pref: string;
   resource_pref: Record<string, number>;
   metacognition: number | string;
   version?: number;
+  _version?: number;
+  _updated_at?: string;
 }
 
 export interface PathNode {

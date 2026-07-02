@@ -10,10 +10,22 @@ from .reranker import rerank
 from .vector_store import get_store
 
 log = logging.getLogger("sparklearn.retriever")
+COURSE_SOURCE = "《数据结构与算法》讲义"
 
 
 def _clean_ids(source_ids: list[str] | tuple[str, ...] | None) -> list[str]:
     return [str(x).strip() for x in (source_ids or []) if str(x).strip()]
+
+
+def kp_values(value: object) -> set[str]:
+    return {item.strip() for item in str(value or "").split(",") if item.strip()}
+
+
+def hit_matches_kp(hit: dict, kp: str | None) -> bool:
+    if not kp:
+        return True
+    values = kp_values(hit.get("kp"))
+    return not values or kp in values
 
 
 def _hits_from_sources(query: str, source_ids: list[str], top_k: int) -> list[dict]:
@@ -45,10 +57,14 @@ def retrieve(
     else:
         store = get_store()
         qv = embed_texts([query])[0]
-        hits = store.search(qv, top_k=top_k)
+        search_k = max(top_k * 4, final_k * 8, 40)
+        hits = [
+            hit for hit in store.search(qv, top_k=search_k)
+            if course != "ds_algo" or hit.get("source") == COURSE_SOURCE
+        ]
 
     if kp:
-        hits = [hit for hit in hits if not hit.get("kp") or hit.get("kp") == kp]
+        hits = [hit for hit in hits if hit_matches_kp(hit, kp)]
     if not hits:
         return []
 

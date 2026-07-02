@@ -33,6 +33,20 @@ def kp_name(kp_id: str) -> str:
     return load_kg()["nodes"].get(kp_id, {}).get("name", kp_id)
 
 
+def canonical_kp_id(value: str | None) -> str | None:
+    """Return a knowledge-graph id, accepting the legacy ``id(name)`` form."""
+    raw = str(value or "").strip().replace("（", "(").replace("）", ")")
+    nodes = load_kg()["nodes"]
+    if raw in nodes:
+        return raw
+    if raw.endswith(")") and "(" in raw:
+        kp_id, label = raw[:-1].split("(", 1)
+        kp_id, label = kp_id.strip(), label.strip()
+        if kp_id in nodes and label == str(nodes[kp_id].get("name", "")).strip():
+            return kp_id
+    return None
+
+
 def prerequisites(kp_id: str) -> list[str]:
     kg = load_kg()
     return [e["from"] for e in kg["edges"] if e["to"] == kp_id]

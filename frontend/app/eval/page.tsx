@@ -21,6 +21,10 @@ const ETYPE: Record<string, string> = {
   chat: "学习对话",
 };
 
+function pct(value?: number | null) {
+  return value == null ? "-" : `${Math.round(value * 100)}%`;
+}
+
 export default function EvalPage() {
   const [rep, setRep] = useState<Report | null>(null);
   const [err, setErr] = useState("");
@@ -35,6 +39,9 @@ export default function EvalPage() {
   if (!rep) return <div className="py-20 text-center font-mono text-xs text-slate-500">LOADING REPORT...</div>;
 
   const acc = rep.attempts.accuracy;
+  const binaryTree = rep.radar.find((r) => r.kp === "binary_tree");
+  const sortingAdv = rep.radar.find((r) => r.kp === "sorting_adv");
+  const errorTags = rep.profile.error_prone?.slice(0, 3) || [];
 
   return (
     <div className="grid gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
@@ -57,6 +64,41 @@ export default function EvalPage() {
       </div>
 
       <div className="space-y-5">
+        <section className="rounded-xl border border-orange-200 bg-orange-50 p-5 shadow-sm">
+          <div className="font-mono text-[10px] tracking-[0.24em] text-orange-600">DEMO CAUSAL CHAIN</div>
+          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">做题后画像怎么变</h1>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-white/70 bg-white px-3 py-3">
+              <div className="text-xs font-bold text-slate-500">综合正确率</div>
+              <div className={`mt-1 text-3xl font-black ${acc == null ? "text-slate-400" : acc >= 0.7 ? "text-emerald-600" : "text-orange-600"}`}>
+                {pct(acc)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">两组题真实提交后的平均</div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-white px-3 py-3">
+              <div className="text-xs font-bold text-emerald-700">二叉树答对</div>
+              <div className="mt-1 text-3xl font-black text-emerald-600">{pct(binaryTree?.mastery)}</div>
+              <div className="mt-1 text-xs text-slate-500">掌握度上升，进入已掌握</div>
+            </div>
+            <div className="rounded-lg border border-orange-200 bg-white px-3 py-3">
+              <div className="text-xs font-bold text-orange-700">高级排序答错</div>
+              <div className="mt-1 text-3xl font-black text-orange-600">{pct(sortingAdv?.mastery)}</div>
+              <div className="mt-1 text-xs text-slate-500">掌握度下降，错因回写画像</div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {errorTags.length > 0 ? (
+              errorTags.map((tag) => (
+                <span key={tag} className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-bold text-orange-700">
+                  {tag}
+                </span>
+              ))
+            ) : (
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500">暂无错因标签</span>
+            )}
+          </div>
+        </section>
+
         <section className="glass-panel rounded-xl p-5">
           <div className="font-mono text-[10px] tracking-[0.24em] text-blue-600">MASTERY PANORAMA</div>
           <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">知识点掌握全景</h1>

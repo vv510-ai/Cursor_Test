@@ -82,6 +82,17 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
+function MasteryPill({ label, value, tone }: { label: string; value: number; tone: "up" | "down" }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${tone === "up" ? "border-emerald-200 bg-emerald-50" : "border-orange-200 bg-orange-50"}`}>
+      <div className={`text-[11px] font-bold ${tone === "up" ? "text-emerald-700" : "text-orange-700"}`}>{label}</div>
+      <div className={`mt-0.5 font-mono text-lg font-black ${tone === "up" ? "text-emerald-600" : "text-orange-600"}`}>
+        {Math.round(value * 100)}%
+      </div>
+    </div>
+  );
+}
+
 export default function ProfileRadar({ profile }: { profile: StudentProfile | null }) {
   const radar = useMemo(() => {
     const m = profile?.knowledge_mastery || {};
@@ -104,6 +115,9 @@ export default function ProfileRadar({ profile }: { profile: StudentProfile | nu
     .slice(0, 2)
     .map(([k]) => ({ doc: "图文", video: "视频", quiz: "习题", mindmap: "脑图", code: "代码" }[k] || k))
     .join(" / ");
+  const mastery = profile.knowledge_mastery || {};
+  const binaryTree = Number(mastery.binary_tree ?? 0);
+  const sortingAdv = Number(mastery.sorting_adv ?? 0);
 
   const fallbackRadar =
     radar.length > 0
@@ -118,12 +132,18 @@ export default function ProfileRadar({ profile }: { profile: StudentProfile | nu
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-1 flex items-center justify-between">
         <div>
-          <div className="font-mono text-[10px] tracking-[0.22em] text-blue-600">PROFILE v{profile.version ?? 0}</div>
+          <div className="font-mono text-[10px] tracking-[0.22em] text-blue-600">
+            PROFILE v{profile._version ?? profile.version ?? 0}
+          </div>
           <div className="mt-1 text-sm font-bold text-slate-950">学生画像</div>
         </div>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">薄弱知识点</span>
       </div>
       <Radar data={fallbackRadar} />
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <MasteryPill label="二叉树" value={binaryTree} tone="up" />
+        <MasteryPill label="高级排序" value={sortingAdv} tone="down" />
+      </div>
       <div className="mt-2">
         <Row k="STYLE" v={asText(profile.cognitive_style)} />
         <Row k="GOAL" v={asText(profile.goal)} />

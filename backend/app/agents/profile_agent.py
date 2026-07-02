@@ -19,12 +19,12 @@ _PROMPT = (
     "无法判断的字段不要输出。字段定义:\n"
     "cognitive_style: 视觉型|语言型|动手型\n"
     "goal: 应试|竞赛|工程实践|兴趣\n"
-    "pace: {{\"daily_minutes\": int, \"frequency\": str, \"focus\": \"高|中|低\"}}\n"
     "difficulty_pref: 循序渐进|挑战式\n"
     "error_prone: [易错知识点或错误类型]\n"
-    "resource_pref: {{\"doc\":0-1,\"video\":0-1,\"quiz\":0-1,\"mindmap\":0-1,\"code\":0-1}}\n"
     "metacognition: 0-1 浮点(自评准确度/求助合理性)\n"
     "evidence: 一句话说明依据\n"
+    "不要输出 knowledge_mastery、pace、resource_pref;"
+    "这三项分别由 BKT、真实时长统计和资源行为统计维护。\n"
     "只输出 JSON 对象。\n\n【对话】\n{dialog}\n\n【近期学习行为】\n{events}\n"
 )
 
@@ -32,6 +32,17 @@ _PROMPT = (
 async def run(state: dict) -> dict:
     user_id = state.get("user_id", "demo_user")
     await agent_start("profile", "画像构建智能体", "对话+行为日志 → 增量更新 ≥6 维画像(星火 Lite)")
+
+    if state.get("intent") == "generate":
+        profile = get_profile(user_id)
+        await emit({"type": "profile", "profile": profile})
+        dims = [k for k in ("knowledge_mastery", "cognitive_style", "error_prone", "goal",
+                            "pace", "difficulty_pref", "resource_pref", "metacognition")
+                if k in profile]
+        await agent_end("profile",
+                        f"画像 v{profile.get('_version')}:{len(dims)} 维在线,生成资源仅读取画像",
+                        {"version": profile.get("_version")})
+        return {"student_profile": profile}
 
     dialog = "\n".join(f"{m.get('role')}: {m.get('content','')}"
                        for m in (state.get("messages") or [])[-6:]) or "(无新对话)"
@@ -45,6 +56,8 @@ async def run(state: dict) -> dict:
         patch = parse_json(raw)
         if not isinstance(patch, dict):
             patch = {}
+        for managed_field in ("knowledge_mastery", "pace", "resource_pref"):
+            patch.pop(managed_field, None)
     except Exception as e:  # noqa: BLE001
         log.warning("画像抽取失败,保持现状:%s", e)
 

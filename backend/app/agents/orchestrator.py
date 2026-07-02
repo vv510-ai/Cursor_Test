@@ -21,6 +21,8 @@ _PROMPT = (
 )
 _VALID = {"generate", "tutor", "eval", "chat"}
 _GENERATE_HINTS = ("规划", "计划", "学习路径", "复习路径", "复习计划", "学习资源", "生成资源", "全套学习")
+_TUTOR_HINTS = ("是什么", "为什么", "怎么", "如何", "讲讲", "解释", "区别", "举例", "代码", "算法", "？", "?")
+_EVAL_HINTS = ("测试", "测一测", "考考我", "出题", "练习题", "做题", "评估")
 
 
 async def run(state: dict) -> dict:
@@ -31,6 +33,10 @@ async def run(state: dict) -> dict:
     if intent not in _VALID:
         if any(k in msg for k in _GENERATE_HINTS):
             intent, reason = "generate", "命中学习规划/资源生成关键词"
+        elif any(k in msg for k in _EVAL_HINTS):
+            intent, reason = "eval", "命中测试/做题关键词"
+        elif any(k in msg for k in _TUTOR_HINTS):
+            intent, reason = "tutor", "命中答疑关键词"
         else:
             try:
                 raw = await llm_complete(_PROMPT.format(msg=msg, goal=state.get("learning_goal", "")),

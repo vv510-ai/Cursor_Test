@@ -49,7 +49,15 @@ function ResourceNotice({ title, detail }: { title: string; detail?: string }) {
   );
 }
 
-export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceItem; defaultOpen?: boolean }) {
+export default function ResourceCard({
+  r,
+  defaultOpen = false,
+  onQuizEvaluated,
+}: {
+  r: ResourceItem;
+  defaultOpen?: boolean;
+  onQuizEvaluated?: () => void;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   const meta = KIND_META[r.kind] || { label: r.kind, code: r.kind.toUpperCase(), tone: "border-slate-200 bg-slate-50 text-slate-600" };
   const grounded = r.payload?.grounded;
@@ -91,7 +99,7 @@ export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceIt
           ) : r.kind === "mindmap" && payload.markmap ? (
             <Markmap markdown={payload.markmap} />
           ) : r.kind === "quiz" && payload.questions ? (
-            <QuizPlayer resourceId={r.id} questions={payload.questions} />
+            <QuizPlayer resourceId={r.id} questions={payload.questions} onEvaluated={onQuizEvaluated} />
           ) : r.kind === "video" ? (
             <VideoBlock payload={payload} />
           ) : payload.markdown ? (
@@ -107,10 +115,10 @@ export default function ResourceCard({ r, defaultOpen = false }: { r: ResourceIt
 
           {r.citations?.length > 0 && (
             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="mb-1 font-mono text-[10px] tracking-[0.18em] text-slate-500">CITATIONS · 引用来源</div>
+              <div className="mb-1 font-mono text-[10px] tracking-[0.18em] text-slate-500">CITATIONS · 正文脚注来源</div>
               {r.citations.map((c, i) => (
                 <div key={i} className="text-xs leading-5 text-slate-600">
-                  <span className="font-mono text-orange-600">[{i + 1}]</span> {c}
+                  <span className="font-mono text-orange-600">[^{i + 1}]</span> {c}
                 </div>
               ))}
             </div>

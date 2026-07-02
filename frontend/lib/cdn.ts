@@ -23,7 +23,11 @@ function loadScript(src: string): Promise<void> {
 
 declare global {
   interface Window {
-    mermaid?: { initialize: (c: object) => void; render: (id: string, code: string) => Promise<{ svg: string }> };
+    mermaid?: {
+      initialize: (c: object) => void;
+      parse?: (code: string) => Promise<unknown> | unknown;
+      render: (id: string, code: string) => Promise<{ svg: string }>;
+    };
     markmap?: { Markmap: { create: (el: SVGElement, opts: object | undefined, data: unknown) => unknown }; Transformer: new () => { transform: (md: string) => { root: unknown } } };
   }
 }

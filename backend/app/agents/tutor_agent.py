@@ -1,11 +1,12 @@
 """答疑导师智能体(Tutor Agent):多模态随问随答。
 图片(拍照搜题)→ 讯飞 OCR 还原题面 → RAG 检索教材 → 流式逐 token 输出讲解
-(启发式苏格拉底风格,先思路后答案)→ 附 Mermaid 图解 → grounding 溯源 + 引用事件。"""
+(启发式苏格拉底风格,先思路后答案)→ grounding 溯源 + 引用事件。"""
 from __future__ import annotations
 
+import asyncio
 import base64
 
-from ..llm.spark_client import llm_complete, llm_stream
+from ..llm.spark_client import llm_stream
 from ..llm.spark_ocr import image_to_question
 from ..rag.citation import build_context
 from ..rag.retriever import retrieve
@@ -20,12 +21,6 @@ _SYSTEM = (
     "3) 适当使用类比,关键步骤给出代码或伪代码;"
     "4) 语气友好简洁,Markdown 排版。"
 )
-
-_MERMAID_PROMPT = (
-    "TASK=doc\n请用一个 mermaid 代码块(flowchart TD 或 graph LR)图解下述讲解的核心过程,"
-    "节点≤8 个,只输出 mermaid 代码块:\n{answer}"
-)
-
 
 async def run(state: dict) -> dict:
     question = ""
@@ -65,14 +60,10 @@ async def run(state: dict) -> dict:
         await emit({"type": "token", "delta": delta})
     answer = "".join(parts)
 
-    # 附 Mermaid 图解(视觉型学习者收益最大)
-    mermaid = await llm_complete(_MERMAID_PROMPT.format(answer=answer[:800]),
-                                 role="lite", temperature=0.2, max_tokens=400)
-    if "```mermaid" in mermaid:
-        await emit({"type": "token", "delta": "\n\n" + mermaid.strip() + "\n"})
-        answer += "\n\n" + mermaid.strip()
-
-    ground = await grounding_check(answer, [c["text"] for c in chunks])
+    try:
+        ground = await asyncio.wait_for(grounding_check(answer, [c["text"] for c in chunks]), timeout=8)
+    except TimeoutError:
+        ground = {"grounded": False, "unsupported": [], "verdict": "grounding 校验超时,已标记待复核"}
     safety = safety_filter(answer)
     flags = []
     if not ground.get("grounded", True):

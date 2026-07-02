@@ -73,7 +73,8 @@ export default function Chat({ onEvent }: { onEvent?: (ev: SparkEvent) => void }
               patchLast((a) => ({ ...a, text: a.text || (ev.text as string) || "" }));
               break;
             case "error":
-              patchLast((a) => ({ ...a, text: a.text + `\n\n> 服务异常：${ev.detail || "请稍后重试"}` }));
+              patchLast((a) => ({ ...a, text: a.text + `\n\n> 服务异常：${ev.detail || "请稍后重试"}`, streaming: false }));
+              setBusy(false);
               break;
             case "done":
               patchLast((a) => ({ ...a, streaming: false }));

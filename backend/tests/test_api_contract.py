@@ -23,6 +23,7 @@ from app.config import UPLOAD_SOURCES_DIR  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.db import init_db  # noqa: E402
 from app.rag.ingest import ingest_corpus  # noqa: E402
+from app.rag.retriever import COURSE_SOURCE, retrieve  # noqa: E402
 from app.services.profile_service import ensure_user  # noqa: E402
 
 ALLOWED_EVENTS = {
@@ -218,7 +219,27 @@ def test_knowledge_upload_search_contract():
             )
             assert search.status_code == 200, search.text
             items = search.json()["items"]
-            assert any(item["source_id"] == source_id for item in items), items
+            assert items and all(item["source"] == COURSE_SOURCE for item in items), items
+            assert not any(item["source_id"] == source_id for item in items), items
+
+            selected_hits = retrieve(
+                "Contract upload source binary tree inorder traversal",
+                source_ids=[source_id],
+                kp="binary_tree",
+                final_k=5,
+            )
+            assert any(item["source_id"] == source_id for item in selected_hits), selected_hits
+
+            duplicate = client.post(
+                "/api/knowledge/upload",
+                data={
+                    "user_id": "contract_user",
+                    "kp": "binary_tree",
+                    "title": "Contract Binary Tree Notes Duplicate",
+                },
+                files={"file": ("contract-binary-tree-copy.txt", content, "text/plain")},
+            )
+            assert duplicate.status_code == 409, duplicate.text
 
         events = asyncio.run(_collect(dict(
             GENERATE_STATE,

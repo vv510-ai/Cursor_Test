@@ -182,6 +182,65 @@ def _render_markmap(root_name: str, expanded: list[tuple[str, str, list[str]]]) 
     return "\n".join(lines)
 
 
+def _outline_from_meta(kp: str, outline_node_ids: list | None) -> list[tuple[str, str]]:
+    if isinstance(outline_node_ids, list):
+        out: list[tuple[str, str]] = []
+        for item in outline_node_ids:
+            if isinstance(item, dict) and item.get("id"):
+                out.append((str(item.get("relation") or ""), str(item["id"])))
+            elif isinstance(item, str):
+                out.append(("", item))
+        if out:
+            return out
+    return _outline_nodes(kp)
+
+
+def refresh_markmap_labels(
+    markdown: str,
+    kp: str,
+    profile: dict,
+    *,
+    outline_node_ids: list | None = None,
+) -> tuple[str, bool]:
+    """Relabel existing markmap Markdown from exact KG node ids.
+
+    Existing resources may not carry outline metadata, so the fallback derives
+    the same node id sequence from resource.kp and the knowledge graph.
+    """
+    mastery, unlocked = _label_context(profile)
+    if not mastery or unlocked is None:
+        return markdown, False
+
+    outline = _outline_from_meta(kp, outline_node_ids)
+    lines = markdown.splitlines()
+    changed = False
+    outline_idx = 0
+    new_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("# ") and not line.startswith("## "):
+            new_line = f"# {_node_label(kp, mastery, unlocked)}"
+        elif line.startswith("## "):
+            relation = ""
+            node_id = ""
+            if outline_idx < len(outline):
+                relation, node_id = outline[outline_idx]
+            outline_idx += 1
+            if node_id:
+                current_relation, sep, _ = line[3:].partition(":")
+                label_relation = current_relation if sep else relation
+                prefix = f"## {label_relation}:" if label_relation else "## "
+                new_line = f"{prefix}{_node_label(node_id, mastery, unlocked)}"
+            else:
+                new_line = line
+        else:
+            new_line = line
+        if new_line != line:
+            changed = True
+        new_lines.append(new_line)
+    return "\n".join(new_lines), changed
+
+
 async def run(state: dict) -> dict:
     requested = state.get("kinds") or []
     if requested and "mindmap" not in requested:
@@ -195,7 +254,8 @@ async def run(state: dict) -> dict:
     expanded: list[tuple[str, str, list[str]]] = []
     citations: list[dict] = []
     prompt_samples: list[str] = []
-    for relation, node_id in _outline_nodes(kp):
+    outline = _outline_nodes(kp)
+    for relation, node_id in outline:
         points, node_citations, prompt = await _expand_node(node_id, source_ids=source_ids, goal=goal)
         expanded.append((relation, _node_label(node_id, mastery, unlocked), points))
         citations.extend(node_citations)
@@ -208,7 +268,9 @@ async def run(state: dict) -> dict:
     rid = uuid.uuid4().hex[:12]
     resource = {"id": rid, "kind": "mindmap", "kp": kp,
                 "title": f"{name}·思维导图",
-                "payload": {"markmap": md},
+                "payload": {"markmap": md,
+                            "outline_node_ids": [{"relation": rel, "id": node_id}
+                                                 for rel, node_id in outline]},
                 "citations": list(dict.fromkeys(c.get("citation", "") for c in citations if c.get("citation")))}
     await emit({"type": "resource", "resource": resource})
     await agent_end("mindmap", f"脑图节点 {md.count(chr(10)) + 1} 行,已推送卡片",

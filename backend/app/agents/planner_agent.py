@@ -6,7 +6,7 @@ import json
 import logging
 
 from ..llm.spark_client import llm_complete, parse_json
-from ..services.knowledge_graph import all_kp_ids, kp_name
+from ..services.knowledge_graph import all_kp_ids, canonical_kp_id, kp_name
 from .emitter import agent_end, agent_start
 
 log = logging.getLogger("sparklearn.planner")
@@ -28,7 +28,8 @@ async def run(state: dict) -> dict:
     profile = state.get("student_profile", {})
     goal = state.get("learning_goal") or (state.get("messages") or [{}])[-1].get("content", "")
     kinds = state.get("kinds") or ["doc", "mindmap", "quiz", "code", "video"]
-    kps = ", ".join(f"{k}({kp_name(k)})" for k in all_kp_ids())
+    kp_ids = all_kp_ids()
+    kps = json.dumps([{"id": k, "name": kp_name(k)} for k in kp_ids], ensure_ascii=False)
 
     slim = {k: v for k, v in profile.items()
             if k in ("cognitive_style", "goal", "difficulty_pref", "error_prone", "resource_pref")}
@@ -43,15 +44,15 @@ async def run(state: dict) -> dict:
         log.warning("规划失败,使用兜底计划:%s", e)
 
     items = plan.get("resources") if isinstance(plan, dict) else None
+    items = [item for item in items or [] if isinstance(item, dict)]
+    explicit_kp = canonical_kp_id((state.get("knowledge_points") or [None])[0])
+    fallback_kp = explicit_kp or "binary_tree"
     if not items:
-        kp = (state.get("knowledge_points") or ["binary_tree"])[0]
-        items = [{"kind": k, "kp": kp, "reason": "兜底默认计划"} for k in kinds]
+        items = [{"kind": k, "kp": fallback_kp, "reason": "兜底默认计划"} for k in kinds]
         plan = {"resources": items, "order": "→".join(kinds)}
 
-    # 与显式 knowledge_points / kinds 求交集对齐
-    if state.get("knowledge_points"):
-        for it in items:
-            it["kp"] = state["knowledge_points"][0]
+    for item in items:
+        item["kp"] = explicit_kp or canonical_kp_id(item.get("kp")) or fallback_kp
     plan["resources"] = [it for it in items if it.get("kind") in set(kinds) | {"reading"}]
     kp0 = plan["resources"][0]["kp"] if plan["resources"] else "binary_tree"
     await agent_end("planner",

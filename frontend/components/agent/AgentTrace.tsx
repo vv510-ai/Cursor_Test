@@ -118,6 +118,7 @@ export default function AgentTrace({ trace }: { trace: TraceState }) {
         <div>
           <div className="font-mono text-[10px] tracking-[0.24em] text-blue-600">AGENT TRACE</div>
           <div className="mt-1 text-sm font-bold text-slate-950">多智能体协作链路</div>
+          <div className="mt-0.5 text-[11px] text-slate-500">只点亮本次实际运行的智能体，未选资源保持空闲。</div>
         </div>
         <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-mono text-[10px] text-slate-500">
           RUN {running} / DONE {done}

@@ -9,9 +9,9 @@ install()
 
 from app.services.bkt import bkt_update, mastery_level  # noqa: E402
 from app.services.knowledge_graph import (all_kp_ids, prerequisites,  # noqa: E402
-                                          topological_order, unlockable)
+                                          canonical_kp_id, topological_order, unlockable)
 from app.services.path_service import plan_path  # noqa: E402
-from app.services.profile_service import default_profile  # noqa: E402
+from app.services.profile_service import default_profile, sanitize_profile_patch  # noqa: E402
 from app.rag.ingest import ingest_corpus, load_all_chunks  # noqa: E402
 from app.rag.retriever import _format_citation  # noqa: E402
 from app.rag.vector_store import get_store  # noqa: E402
@@ -56,6 +56,27 @@ def test_plan_path_thresholds():
     kp_set = set(by)
     for e in path["edges"]:
         assert e["from"] in kp_set and e["to"] in kp_set
+
+
+def test_profile_patch_and_kp_normalization():
+    assert canonical_kp_id("complexity") == "complexity"
+    assert canonical_kp_id("complexity(复杂度分析)") == "complexity"
+    assert canonical_kp_id("degree_of_a_node") is None
+
+    patch = sanitize_profile_patch({
+        "knowledge_mastery": {"complexity(复杂度分析)": 1.2, "unknown": 0.9},
+        "error_prone": "概念混淆",
+        "difficulty_pref": "挑战型",
+        "resource_pref": {"mindmap": 31, "quiz": -1},
+        "metacognition": 2,
+        "unexpected": "drop me",
+    })
+    assert patch["knowledge_mastery"] == {"complexity": 1.0}
+    assert patch["error_prone"] == ["概念混淆"]
+    assert patch["difficulty_pref"] == "挑战式"
+    assert patch["resource_pref"] == {"mindmap": 1.0, "quiz": 0.0}
+    assert patch["metacognition"] == 1.0
+    assert "unexpected" not in patch
 
 
 def test_extra_sources_ingest_and_citation():

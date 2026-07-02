@@ -63,7 +63,7 @@ interface KnowledgeUploadResult {
 
 export default function ResourcesPage() {
   const [kp, setKp] = useState("binary_tree");
-  const [kinds, setKinds] = useState<string[]>(["doc", "mindmap", "quiz", "video"]);
+  const [kinds, setKinds] = useState<string[]>(["doc"]);
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [trace, setTrace] = useState<TraceState>(emptyTrace());
@@ -84,6 +84,7 @@ export default function ResourcesPage() {
   const [uploadResult, setUploadResult] = useState<KnowledgeUploadResult | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [showUpload, setShowUpload] = useState(false);
 
   const selectedKpName = useMemo(() => KPS.find(([id]) => id === kp)?.[1] || kp, [kp]);
   const selectedKindNames = useMemo(
@@ -94,7 +95,10 @@ export default function ResourcesPage() {
 
   const loadHistory = useCallback(() => {
     apiGet<{ items: ResourceItem[] }>(`/resources?user_id=${USER_ID}`)
-      .then((d) => setHistory(d.items))
+      .then((d) => {
+        setHistory(d.items);
+        setFresh((prev) => prev.map((r) => d.items.find((item) => item.id === r.id) || r));
+      })
       .catch(() => {});
   }, []);
 
@@ -236,6 +240,11 @@ export default function ResourcesPage() {
           </div>
 
           <div className="space-y-5 p-5">
+            <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+              <div className="font-mono text-[10px] tracking-[0.2em] text-orange-600">DEMO STEP 1</div>
+              <div className="mt-1 font-bold text-slate-950">演示时选择“二叉树 + 图文教程”，生成后展开卡片，直接看正文脚注 [^1] 和引用来源。</div>
+            </div>
+
             <div>
               <div className="mb-2 text-sm font-bold text-slate-900">知识点</div>
               <div className="flex flex-wrap gap-2">
@@ -300,72 +309,82 @@ export default function ResourcesPage() {
                   <div className="font-mono text-[10px] tracking-[0.18em] text-blue-600">KNOWLEDGE</div>
                   <div className="text-sm font-black text-slate-950">上传学习资料</div>
                 </div>
-                <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">TXT / MD / PDF</span>
-              </div>
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <input
-                  key={fileInputKey}
-                  type="file"
-                  accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-slate-700"
-                />
-                <input
-                  value={uploadTitle}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  placeholder="资料标题"
-                  className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-                />
                 <button
-                  onClick={uploadKnowledge}
-                  disabled={!uploadFile || uploadBusy}
-                  className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => setShowUpload((v) => !v)}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[10px] text-slate-500 transition hover:border-blue-200 hover:text-blue-700"
                 >
-                  {uploadBusy ? "索引中..." : "上传并索引"}
+                  {showUpload ? "收起上传" : "展开上传"}
                 </button>
               </div>
-              {uploadStatus && <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">{uploadStatus}</div>}
-              {uploadError && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{uploadError}</div>}
-              {uploadResult && (
-                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                  已索引 {uploadResult.source.chunk_count} 个片段 · 知识库共 {uploadResult.vector_count} 个片段
-                </div>
-              )}
-              {sources.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>已上传资料</span>
-                    <span className="font-mono">{selectedSourceIds.length} selected</span>
+              {!showUpload && <div className="text-xs text-slate-500">本次演示使用课程知识库。需要临时资料时再展开上传。</div>}
+              {showUpload && (
+                <>
+                  <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <input
+                      key={fileInputKey}
+                      type="file"
+                      accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-slate-700"
+                    />
+                    <input
+                      value={uploadTitle}
+                      onChange={(e) => setUploadTitle(e.target.value)}
+                      placeholder="资料标题"
+                      className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                    />
+                    <button
+                      onClick={uploadKnowledge}
+                      disabled={!uploadFile || uploadBusy}
+                      className="min-h-11 rounded-lg bg-blue-600 px-4 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {uploadBusy ? "索引中..." : "上传并索引"}
+                    </button>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {sources.slice(0, 4).map((source) => {
-                      const checked = selectedSourceIds.includes(source.id);
-                      return (
-                        <label
-                          key={source.id}
-                          className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition ${
-                            checked ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-200"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSource(source.id)}
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-bold text-slate-900">{source.title || source.filename}</span>
-                            <span className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-                              <span className="font-mono text-blue-600">{source.kp || "general"}</span>
-                              <span>{source.chunk_count} chunks</span>
-                              <span>{source.status}</span>
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
+                  {uploadStatus && <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">{uploadStatus}</div>}
+                  {uploadError && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{uploadError}</div>}
+                  {uploadResult && (
+                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                      已索引 {uploadResult.source.chunk_count} 个片段 · 知识库共 {uploadResult.vector_count} 个片段
+                    </div>
+                  )}
+                  {sources.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>已上传资料</span>
+                        <span className="font-mono">{selectedSourceIds.length} selected</span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {sources.slice(0, 4).map((source) => {
+                          const checked = selectedSourceIds.includes(source.id);
+                          return (
+                            <label
+                              key={source.id}
+                              className={`flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition ${
+                                checked ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-200"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleSource(source.id)}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-bold text-slate-900">{source.title || source.filename}</span>
+                                <span className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                                  <span className="font-mono text-blue-600">{source.kp || "general"}</span>
+                                  <span>{source.chunk_count} chunks</span>
+                                  <span>{source.status}</span>
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -413,17 +432,16 @@ export default function ResourcesPage() {
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-600">TRACE</span>{" "}
+                    <span className="mr-2 font-mono text-[10px] tracking-[0.18em] text-blue-600">RUN TRACE</span>{" "}
                     <span className="font-mono text-slate-900">{runInfo.session_id}</span>
                   </div>
                   <button
                     onClick={toggleTraceReport}
                     className="rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-[10px] text-slate-600 transition hover:border-blue-300 hover:text-blue-700"
                   >
-                    {traceOpen ? "收起报告" : "查看报告"}
+                    {traceOpen ? "收起技术报告" : "技术报告"}
                   </button>
                 </div>
-                {runInfo.run_dir && <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{runInfo.run_dir}</span>}
                 {traceOpen && (
                   <div className="mt-3 border-t border-slate-200 pt-3">
                     {traceLoading ? (
@@ -477,11 +495,12 @@ export default function ResourcesPage() {
               <div>
                 <div className="font-mono text-[10px] tracking-[0.24em] text-orange-600">FRESH OUTPUT</div>
                 <h2 className="text-lg font-black text-slate-950">本次生成结果</h2>
+                <p className="mt-1 text-xs text-slate-500">展开图文教程，正文脚注 [^n] 会和底部引用来源一一对应。</p>
               </div>
               <span className="text-sm text-slate-500">{fresh.length} 个资源</span>
             </div>
             {fresh.map((r) => (
-              <ResourceCard key={r.id} r={r} defaultOpen />
+              <ResourceCard key={r.id} r={r} defaultOpen onQuizEvaluated={loadHistory} />
             ))}
           </section>
         )}
@@ -495,7 +514,7 @@ export default function ResourcesPage() {
             <span className="text-sm text-slate-500">{history.length} 个资源</span>
           </div>
           {history.filter((r) => !freshIds.has(r.id)).map((r) => (
-            <ResourceCard key={r.id} r={r} />
+            <ResourceCard key={r.id} r={r} onQuizEvaluated={loadHistory} />
           ))}
           {history.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">

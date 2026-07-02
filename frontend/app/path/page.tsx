@@ -5,6 +5,12 @@ import PathDag from "@/components/path/PathDag";
 import { USER_ID, apiGet, apiPost } from "@/lib/api";
 import type { PathPlan } from "@/lib/types";
 
+function statusText(status?: string) {
+  if (status === "done") return "已掌握";
+  if (status === "ready") return "可学习";
+  return "待解锁";
+}
+
 export default function PathPage() {
   const [plan, setPlan] = useState<PathPlan | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -65,9 +71,9 @@ export default function PathPage() {
           <button
             onClick={replan}
             disabled={busy}
-            className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:border-blue-200 hover:text-blue-700 disabled:opacity-50"
           >
-            {busy ? "重排中..." : "按最新画像重排"}
+            {busy ? "重排中..." : "手动重排"}
           </button>
         </div>
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
@@ -79,6 +85,30 @@ export default function PathPage() {
       </section>
 
       <aside className="space-y-4">
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
+          <div className="font-mono text-[10px] tracking-[0.22em] text-orange-600">WHY PATH CHANGED</div>
+          <h2 className="mt-1 text-sm font-black text-slate-950">做题后的路径变化</h2>
+          {(() => {
+            const tree = plan.nodes.find((n) => n.id === "binary_tree");
+            const bst = plan.nodes.find((n) => n.id === "bst");
+            const heap = plan.nodes.find((n) => n.id === "heap");
+            const sorting = plan.nodes.find((n) => n.id === "sorting_adv");
+            return (
+              <div className="mt-3 space-y-2 text-xs leading-5 text-slate-700">
+                <div className="rounded-lg border border-white/70 bg-white px-3 py-2">
+                  二叉树 <span className="font-mono font-black text-emerald-600">{Math.round((tree?.mastery || 0) * 100)}%</span> · {statusText(tree?.status)}
+                </div>
+                <div className="rounded-lg border border-white/70 bg-white px-3 py-2">
+                  BST / 堆进入推荐：{statusText(bst?.status)} #{bst?.order || "-"}，{statusText(heap?.status)} #{heap?.order || "-"}
+                </div>
+                <div className="rounded-lg border border-white/70 bg-white px-3 py-2">
+                  高级排序 <span className="font-mono font-black text-orange-600">{Math.round((sorting?.mastery || 0) * 100)}%</span>，继续作为薄弱点跟踪
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="font-mono text-[10px] tracking-[0.22em] text-orange-600">NODE DETAIL</div>
           {node ? (

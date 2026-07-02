@@ -20,7 +20,17 @@ from sqlalchemy import select
 from ..models.db import init_db, session
 from ..models.entities import EventLog, Profile, User
 from ..services.bkt import bkt_update
-from ..services.knowledge_graph import all_kp_ids
+from ..services.knowledge_graph import all_kp_ids, canonical_kp_id
+
+_PROFILE_FIELDS = {
+    "knowledge_mastery", "cognitive_style", "error_prone", "goal", "pace",
+    "difficulty_pref", "resource_pref", "metacognition", "evidence",
+}
+_COGNITIVE_STYLES = {"视觉型", "语言型", "动手型"}
+_GOALS = {"应试", "竞赛", "工程实践", "兴趣"}
+_DIFFICULTY_PREFS = {"循序渐进", "挑战式"}
+_RESOURCE_KINDS = {"doc", "video", "quiz", "mindmap", "code"}
+_FOCUS_LEVELS = {"高", "中", "低"}
 
 
 def default_profile() -> dict:
@@ -29,7 +39,7 @@ def default_profile() -> dict:
         "cognitive_style": "未知",
         "error_prone": [],
         "goal": "未知",
-        "pace": {"daily_minutes": 30, "frequency": "未知", "focus": "中"},
+        "pace": {"frequency": "未知", "focus": "中"},
         "difficulty_pref": "循序渐进",
         "resource_pref": {"doc": 0.2, "video": 0.2, "quiz": 0.2, "mindmap": 0.2, "code": 0.2},
         "metacognition": 0.5,
@@ -43,6 +53,100 @@ def ensure_user(user_id: str, name: str = "同学") -> None:
         if not s.get(User, user_id):
             s.add(User(id=user_id, name=name))
             s.commit()
+
+
+def _bounded_float(value: Any, low: float = 0.0, high: float = 1.0) -> float | None:
+    try:
+        return min(high, max(low, float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_error_tags(value: Any) -> list[str]:
+    values = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    tags: list[str] = []
+    for item in values:
+        tag = str(item or "").strip()
+        if len(tag) < 2 or tag in tags:
+            continue
+        tags.append(tag)
+    return tags[:8]
+
+
+def sanitize_profile_patch(patch: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate an incremental profile patch before it reaches the JSON column."""
+    if not isinstance(patch, dict):
+        return {}
+    out: dict[str, Any] = {}
+
+    mastery = patch.get("knowledge_mastery")
+    if isinstance(mastery, dict):
+        clean_mastery: dict[str, float] = {}
+        for raw_kp, raw_value in mastery.items():
+            kp = canonical_kp_id(str(raw_kp))
+            value = _bounded_float(raw_value)
+            if kp and value is not None:
+                clean_mastery[kp] = round(value, 4)
+        if clean_mastery:
+            out["knowledge_mastery"] = clean_mastery
+
+    style = str(patch.get("cognitive_style") or "").strip()
+    if style in _COGNITIVE_STYLES:
+        out["cognitive_style"] = style
+
+    tags = _clean_error_tags(patch.get("error_prone"))
+    if tags:
+        out["error_prone"] = tags
+
+    goal = str(patch.get("goal") or "").strip()
+    if goal in _GOALS:
+        out["goal"] = goal
+
+    pace = patch.get("pace")
+    if isinstance(pace, dict):
+        clean_pace: dict[str, Any] = {}
+        try:
+            minutes = int(pace.get("daily_minutes"))
+            if 1 <= minutes <= 1440:
+                clean_pace["daily_minutes"] = minutes
+        except (TypeError, ValueError):
+            pass
+        frequency = str(pace.get("frequency") or "").strip()
+        if frequency and frequency != "未知":
+            clean_pace["frequency"] = frequency[:20]
+        focus = str(pace.get("focus") or "").strip()
+        if focus in _FOCUS_LEVELS:
+            clean_pace["focus"] = focus
+        if clean_pace:
+            out["pace"] = clean_pace
+
+    pref = patch.get("resource_pref")
+    if isinstance(pref, dict):
+        clean_pref: dict[str, float] = {}
+        for kind in _RESOURCE_KINDS:
+            if kind not in pref:
+                continue
+            value = _bounded_float(pref[kind])
+            if value is not None:
+                clean_pref[kind] = round(value, 4)
+        if clean_pref:
+            out["resource_pref"] = clean_pref
+
+    difficulty = str(patch.get("difficulty_pref") or "").strip()
+    if difficulty == "挑战型":
+        difficulty = "挑战式"
+    if difficulty in _DIFFICULTY_PREFS:
+        out["difficulty_pref"] = difficulty
+
+    metacognition = _bounded_float(patch.get("metacognition"))
+    if metacognition is not None:
+        out["metacognition"] = round(metacognition, 4)
+
+    evidence = str(patch.get("evidence") or "").strip()
+    if evidence and evidence != "未知":
+        out["evidence"] = evidence[:300]
+
+    return {k: v for k, v in out.items() if k in _PROFILE_FIELDS}
 
 
 def get_profile(user_id: str) -> dict:
@@ -62,6 +166,9 @@ def get_profile(user_id: str) -> dict:
 def merge_profile(user_id: str, patch: dict[str, Any]) -> dict:
     """浅合并 + 字典维度深合并;version 自增,实现"随学随新"。"""
     ensure_user(user_id)
+    patch = sanitize_profile_patch(patch)
+    if not patch:
+        return get_profile(user_id)
     with session() as s:
         p = s.get(Profile, user_id)
         if p is None:
@@ -71,12 +178,13 @@ def merge_profile(user_id: str, patch: dict[str, Any]) -> dict:
         for k, v in patch.items():
             if k.startswith("_"):
                 continue
-            if isinstance(v, dict) and isinstance(data.get(k), dict):
+            if k == "error_prone" and isinstance(v, list):
+                existing = _clean_error_tags(data.get(k))
+                data[k] = list(dict.fromkeys([*existing, *v]))[:8]
+            elif isinstance(v, dict) and isinstance(data.get(k), dict):
                 merged = dict(data[k])
                 merged.update(v)
                 data[k] = merged
-            elif k == "error_prone" and isinstance(v, list):
-                data[k] = list(dict.fromkeys([*data.get(k, []), *v]))[:8]
             elif v not in (None, "", "未知"):
                 data[k] = v
         p.data = data
@@ -86,10 +194,13 @@ def merge_profile(user_id: str, patch: dict[str, Any]) -> dict:
 
 
 def update_mastery(user_id: str, kp: str, correct: bool) -> float:
+    canonical = canonical_kp_id(kp)
+    if canonical is None:
+        raise ValueError(f"unknown knowledge point: {kp}")
     prof = get_profile(user_id)
-    cur = float(prof["knowledge_mastery"].get(kp, 0.3))
+    cur = float(prof["knowledge_mastery"].get(canonical, 0.3))
     new = bkt_update(cur, correct)
-    merge_profile(user_id, {"knowledge_mastery": {kp: new}})
+    merge_profile(user_id, {"knowledge_mastery": {canonical: new}})
     return new
 
 

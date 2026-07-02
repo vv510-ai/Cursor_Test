@@ -24,6 +24,7 @@ OVERLAP = 50
 MANIFEST = DATA_DIR / "vector_store_manifest.json"
 SUPPORTED_EXTRA = {".md", ".txt", ".json"}
 SUPPORTED_UPLOAD = {".md", ".txt", ".pdf"}
+INACTIVE_SOURCE_STATUSES = {"quarantined", "inactive"}
 
 
 def _front_matter(text: str) -> tuple[dict[str, str], str]:
@@ -290,6 +291,16 @@ def _upload_meta(path: Path) -> dict[str, Any]:
         return {}
 
 
+def source_is_active(meta: dict[str, Any]) -> bool:
+    status = str(meta.get("status") or "").strip().lower()
+    return meta.get("active", True) is not False and status not in INACTIVE_SOURCE_STATUSES
+
+
+def source_sha256(path: Path, meta: dict[str, Any] | None = None) -> str:
+    stored = str((meta or {}).get("sha256") or "").strip().lower()
+    return stored or hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _read_pdf_pages(path: Path) -> list[tuple[int, str]]:
     try:
         from pypdf import PdfReader
@@ -362,12 +373,22 @@ def _load_uploaded_sources() -> list[dict[str, Any]]:
     if not UPLOAD_SOURCES_DIR.exists():
         return []
     chunks: list[dict[str, Any]] = []
+    seen_hashes: set[str] = set()
     for path in sorted(p for p in UPLOAD_SOURCES_DIR.rglob("*") if p.is_file()):
         if path.name.endswith(".meta.json"):
             continue
         if path.suffix.lower() not in SUPPORTED_UPLOAD:
             continue
         try:
+            meta = _upload_meta(path)
+            if not source_is_active(meta):
+                log.info("uploaded source quarantined, skipped: %s", path.name)
+                continue
+            digest = source_sha256(path, meta)
+            if digest in seen_hashes:
+                log.warning("duplicate uploaded source skipped: %s", path.name)
+                continue
+            seen_hashes.add(digest)
             chunks.extend(_load_uploaded_source(path))
         except Exception as exc:  # noqa: BLE001
             log.warning("uploaded source skipped: %s (%s)", path, exc)

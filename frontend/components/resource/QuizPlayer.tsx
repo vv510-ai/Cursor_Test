@@ -6,6 +6,13 @@ import type { QuizQuestion } from "@/lib/types";
 
 interface Report {
   accuracy: number;
+  items?: {
+    question_id: string;
+    correct: boolean;
+    expected?: string;
+    explain?: string;
+    error_tags?: string[];
+  }[];
   per_kp: { name: string; mastery: number; level: string; right: number; n: number }[];
   suggestions: string[];
 }
@@ -24,16 +31,24 @@ function normalize(s: string) {
 
 function isCorrect(q: QuizQuestion, ans: string): boolean {
   if (!ans) return false;
-  if (q.type === "single" || q.type === "complexity") return normalize(ans)[0] === normalize(q.answer)[0];
+  if (q.type === "single" || (q.type === "complexity" && q.options.length > 0)) return normalize(ans)[0] === normalize(q.answer)[0];
   if (q.type === "judge") {
     const yes = ["对", "true", "t", "yes", "y", "正确"];
     return yes.includes(normalize(ans)) === yes.includes(normalize(q.answer));
   }
-  if (q.type === "fill") return normalize(ans) === normalize(q.answer);
+  if (q.type === "fill" || q.type === "complexity") return normalize(ans) === normalize(q.answer);
   return ans.trim().length >= 8;
 }
 
-export default function QuizPlayer({ resourceId, questions }: { resourceId: string; questions: QuizQuestion[] }) {
+export default function QuizPlayer({
+  resourceId,
+  questions,
+  onEvaluated,
+}: {
+  resourceId: string;
+  questions: QuizQuestion[];
+  onEvaluated?: () => void;
+}) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
@@ -42,6 +57,10 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
   const results = useMemo(
     () => Object.fromEntries(questions.map((q) => [q.id, isCorrect(q, answers[q.id] || "")])),
     [questions, answers],
+  );
+  const graded = useMemo(
+    () => Object.fromEntries((report?.items || []).map((item) => [item.question_id, item])),
+    [report],
   );
   const set = (id: string, v: string) => !submitted && setAnswers((a) => ({ ...a, [id]: v }));
 
@@ -71,6 +90,7 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
         behavior: {},
       });
       setReport(rep);
+      onEvaluated?.();
     } catch {
       setReport(null);
     } finally {
@@ -82,7 +102,9 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
     <div className="space-y-3">
       {questions.map((q, i) => {
         const mine = answers[q.id] || "";
-        const ok = results[q.id];
+        const gradedItem = graded[q.id];
+        const ok = gradedItem ? Boolean(gradedItem.correct) : results[q.id];
+        const expected = gradedItem?.expected || q.answer;
         return (
           <div key={q.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="mb-2 flex items-start gap-2 text-sm text-slate-900">
@@ -93,12 +115,12 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
               </span>
             </div>
 
-            {q.type === "single" || q.type === "complexity" ? (
+            {q.type === "single" || (q.type === "complexity" && q.options.length > 0) ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {q.options.map((op, j) => {
                   const tag = String.fromCharCode(65 + j);
                   const chosen = mine === tag;
-                  const isAns = submitted && normalize(q.answer)[0] === tag.toLowerCase();
+                  const isAns = submitted && normalize(expected)[0] === tag.toLowerCase();
                   return (
                     <button
                       key={j}
@@ -123,7 +145,7 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
               <div className="flex gap-2">
                 {["对", "错"].map((v) => {
                   const chosen = mine === v;
-                  const isAns = submitted && normalize(q.answer) === normalize(v);
+                  const isAns = submitted && normalize(expected) === normalize(v);
                   return (
                     <button
                       key={v}
@@ -155,11 +177,11 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
 
             {submitted && (
               <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
-                {ok ? "回答正确" : `参考答案：${q.answer}`}
-                {q.explain && <span className="mt-1 block text-slate-600">{q.explain}</span>}
-                {!ok && q.error_tags?.length > 0 && (
+                {ok ? "回答正确" : `参考答案：${expected}`}
+                {(gradedItem?.explain || q.explain) && <span className="mt-1 block text-slate-600">{gradedItem?.explain || q.explain}</span>}
+                {!ok && (gradedItem?.error_tags || q.error_tags)?.length > 0 && (
                   <span className="mt-1 block font-mono text-[10px] text-orange-700">
-                    错因标签：{q.error_tags.join(" / ")}，已回写画像
+                    错因标签：{(gradedItem?.error_tags || q.error_tags).join(" / ")}，已回写画像
                   </span>
                 )}
               </div>
@@ -194,6 +216,14 @@ export default function QuizPlayer({ resourceId, questions }: { resourceId: stri
               <li key={i}>· {s}</li>
             ))}
           </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="/eval" className="rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-blue-700">
+              查看学情评估
+            </a>
+            <a href="/path" className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-bold text-blue-700 transition hover:bg-blue-50">
+              查看学习路径
+            </a>
+          </div>
           <div className="mt-2 font-mono text-[10px] text-slate-500">学习路径已按新掌握度自动重排</div>
         </div>
       ) : (
