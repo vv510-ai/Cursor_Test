@@ -1,7 +1,9 @@
 "use client";
-/** Markdown 渲染:react-markdown + GFM;```mermaid 代码块经 CDN 渲染为图,
- *  失败(离线/CDN 不可达)时降级展示源码,保证演示永不白屏。 */
-import { useEffect, useRef, useState } from "react";
+/** Markdown 渲染:react-markdown + GFM。
+ *  1) ```mermaid 代码块经 CDN 渲染为图,失败降级源码,生产页面不白屏;
+ *  2) 传入 citeBase 时,正文中的 [^n] 会渲染成可点击引用芯片,
+ *     锚点跳转到资源卡底部「引用来源」对应条目 —— 引用溯源的可视化证据链。 */
+import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getMermaid } from "@/lib/cdn";
@@ -37,16 +39,64 @@ function MermaidBlock({ code }: { code: string }) {
   if (failed)
     return (
       <details className="my-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900">
-        <summary className="cursor-pointer font-semibold">图表语法不稳定，已安全降级为源码</summary>
-        <pre className="mt-2 max-h-40 overflow-auto rounded-md !bg-[#0a0f22] p-3 text-slate-100">
+        <summary className="cursor-pointer font-semibold">图表语法不稳定,已安全降级为源码</summary>
+        <pre className="mt-2 max-h-40 overflow-auto rounded-md !bg-[#0f172a] p-3 text-slate-100">
           <code>{code}</code>
         </pre>
       </details>
     );
-  return <div ref={ref} className="my-2 max-h-80 overflow-auto rounded-lg border border-hairline bg-[#0a0f22] p-2" />;
+  return <div ref={ref} className="my-2 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white p-2" />;
 }
 
-export default function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+/** 正文引用芯片:[^n] → 可点击上标,跳到底部第 n 条来源。 */
+function CiteChip({ n, base, title }: { n: number; base: string; title?: string }) {
+  return (
+    <a
+      href={`#${base}-cite-${n}`}
+      title={title ? `引用来源 ${n}:${title}` : `跳到引用来源 ${n}`}
+      className="mx-0.5 inline-flex -translate-y-[3px] items-center rounded border border-emerald-200 bg-emerald-50 px-1 font-mono text-[10px] font-bold leading-4 text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-100"
+    >
+      {n}
+    </a>
+  );
+}
+
+const CITE_RE = /\[\^(\d{1,2})\]/g;
+
+/** 把子节点里的纯文本按 [^n] 切开并插入 CiteChip;元素节点原样保留。 */
+function withCites(children: React.ReactNode, base?: string, citations?: string[]): React.ReactNode {
+  if (!base) return children;
+  return React.Children.map(children, (child, ci) => {
+    if (typeof child !== "string" || !child.includes("[^")) return child;
+    const parts: React.ReactNode[] = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    CITE_RE.lastIndex = 0;
+    while ((m = CITE_RE.exec(child))) {
+      if (m.index > last) parts.push(child.slice(last, m.index));
+      const n = Number(m[1]);
+      parts.push(<CiteChip key={`c${ci}-${m.index}`} n={n} base={base} title={citations?.[n - 1]} />);
+      last = m.index + m[0].length;
+    }
+    if (last < child.length) parts.push(child.slice(last));
+    return parts;
+  });
+}
+
+export default function Markdown({
+  text,
+  streaming = false,
+  citeBase,
+  citations,
+}: {
+  text: string;
+  streaming?: boolean;
+  /** 提供后启用 [^n] 引用芯片;锚点前缀通常传资源 id */
+  citeBase?: string;
+  /** 引用来源列表,用于芯片 hover 提示 */
+  citations?: string[];
+}) {
+  const cite = (children: React.ReactNode) => withCites(children, citeBase, citations);
   return (
     <div className={`prose-spark text-[13.5px] ${streaming ? "caret" : ""}`}>
       <ReactMarkdown
@@ -66,6 +116,16 @@ export default function Markdown({ text, streaming = false }: { text: string; st
             return <code>{raw}</code>;
           },
           pre: ({ children }) => <>{children}</>,
+          p: ({ children }) => <p>{cite(children)}</p>,
+          li: ({ children }) => <li>{cite(children)}</li>,
+          strong: ({ children }) => <strong>{cite(children)}</strong>,
+          em: ({ children }) => <em>{cite(children)}</em>,
+          td: ({ children }) => <td>{cite(children)}</td>,
+          th: ({ children }) => <th>{cite(children)}</th>,
+          h1: ({ children }) => <h1>{cite(children)}</h1>,
+          h2: ({ children }) => <h2>{cite(children)}</h2>,
+          h3: ({ children }) => <h3>{cite(children)}</h3>,
+          h4: ({ children }) => <h4>{cite(children)}</h4>,
         }}
       >
         {text}

@@ -12,7 +12,9 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from ..config import UPLOAD_SOURCES_DIR
+from ..llm import multimodal_gateway
 from ..rag.ingest import (
+    IMAGE_UPLOAD_SUFFIXES,
     chunks_for_source,
     ingest_corpus,
     source_is_active,
@@ -143,7 +145,11 @@ async def upload_source(
         "title": (title or Path(filename).stem).strip(),
         "filename": filename,
         "kp": kp,
-        "source_type": "uploaded_pdf" if suffix == ".pdf" else "uploaded_text",
+        "source_type": (
+            "uploaded_image"
+            if suffix in IMAGE_UPLOAD_SUFFIXES
+            else "uploaded_pdf" if suffix == ".pdf" else "uploaded_text"
+        ),
         "bytes": len(data),
         "sha256": digest,
         "status": "active",
@@ -152,6 +158,33 @@ async def upload_source(
     }
     meta_path = upload_meta_path(stored)
     _write_json(meta_path, meta)
+
+    if suffix in IMAGE_UPLOAD_SUFFIXES:
+        ocr = await multimodal_gateway.ocr_image(
+            data,
+            hint="请完整转写这份课程讲义,保留标题、公式、代码和列表层级。",
+            purpose="ingest",
+            trace_id=f"upload-{source_id}",
+        )
+        if not ocr["ok"]:
+            stored.unlink(missing_ok=True)
+            meta_path.unlink(missing_ok=True)
+            raise HTTPException(
+                400,
+                "图片识别未配置或失败,请上传清晰的 PNG/JPG 讲义照片,"
+                "也可以改用 TXT/MD/PDF 文本资料。",
+            )
+        ocr_data = ocr["data"]
+        meta["ocr"] = {
+            "text": str(ocr_data.get("text") or ""),
+            "pages": 1,
+            "chars": int(ocr_data.get("chars") or 0),
+            "elapsed_ms": int(ocr.get("elapsed_ms") or 0),
+            "engine": str(ocr_data.get("engine") or "spark_image_understanding"),
+            "trace_id": str(ocr.get("trace_id") or ""),
+            "degraded": bool(ocr.get("degraded")),
+        }
+        _write_json(meta_path, meta)
 
     try:
         vector_count = ingest_corpus(force=True)

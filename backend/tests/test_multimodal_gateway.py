@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app.llm import multimodal_gateway as gateway
+
+
+@pytest.fixture(autouse=True)
+def _non_demo_gateway(monkeypatch):
+    monkeypatch.setattr(gateway, "is_demo", lambda: False)
+
+
+def _settings(**overrides):
+    values = {
+        "spark_appid": "app",
+        "spark_api_key": "key",
+        "spark_api_secret": "secret",
+        "mm_ocr_enabled": True,
+        "mm_tts_enabled": True,
+        "mm_image_enabled": True,
+        "mm_video_enabled": True,
+        "mm_ocr_tutor_timeout_s": 0.05,
+        "mm_ocr_ingest_timeout_s": 0.05,
+        "mm_tts_timeout_s": 0.02,
+        "mm_image_timeout_s": 0.05,
+        "mm_video_create_timeout_s": 0.05,
+        "mm_video_wait_budget_s": 0.02,
+        "mm_video_poll_timeout_s": 0.01,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_disabled_capability_degrades_without_call(monkeypatch):
+    settings = _settings(mm_tts_enabled=False)
+    called = False
+
+    def provider(*args, **kwargs):
+        nonlocal called
+        called = True
+        return "/static/gen/should-not-exist.mp3"
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.spark_tts, "synthesize", provider)
+    result = asyncio.run(gateway.tts("test", trace_id="disabled-test"))
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert "disabled" in result["error"]
+    assert called is False
+
+
+def test_forced_demo_never_calls_real_tts(monkeypatch):
+    settings = _settings()
+    called = False
+
+    def provider(*args, **kwargs):
+        nonlocal called
+        called = True
+        return "/static/gen/should-not-exist.mp3"
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway, "is_demo", lambda: True)
+    monkeypatch.setattr(gateway.spark_tts, "synthesize", provider)
+    result = asyncio.run(gateway.tts("offline demo", trace_id="demo-no-network"))
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert called is False
+
+
+def test_slow_tts_times_out_without_blocking_event_loop(monkeypatch):
+    settings = _settings(mm_tts_timeout_s=0.01)
+    marker_reached = False
+
+    def slow_provider(*args, **kwargs):
+        time.sleep(0.08)
+        return None
+
+    async def scenario():
+        nonlocal marker_reached
+
+        async def marker():
+            nonlocal marker_reached
+            await asyncio.sleep(0.003)
+            marker_reached = True
+
+        result, _ = await asyncio.gather(
+            gateway.tts("slow", trace_id="timeout-test"),
+            marker(),
+        )
+        return result
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.spark_tts, "synthesize", slow_provider)
+    result = asyncio.run(scenario())
+
+    assert marker_reached is True
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert "timeout" in result["error"]
+
+
+def test_tts_uses_stable_content_cache(monkeypatch, tmp_path: Path):
+    settings = _settings()
+    calls = 0
+
+    def provider(text, *, voice, filename):
+        nonlocal calls
+        calls += 1
+        (tmp_path / filename).write_bytes(b"ID3-test-audio")
+        return f"/static/gen/{filename}"
+
+    monkeypatch.setattr(gateway, "GEN_DIR", tmp_path)
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.spark_tts, "synthesize", provider)
+
+    first = asyncio.run(gateway.tts("same text", trace_id="cache-1"))
+    second = asyncio.run(gateway.tts("same text", trace_id="cache-2"))
+
+    assert first["ok"] is True, first
+    assert first["data"]["cached"] is False
+    assert second["ok"] is True, second
+    assert second["data"]["cached"] is True
+    assert first["data"]["audio_url"] == second["data"]["audio_url"]
+    assert calls == 1
+
+
+def test_provider_exception_is_a_degraded_result(monkeypatch):
+    settings = _settings()
+
+    def broken_provider(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.spark_image, "generate_image", broken_provider)
+    result = asyncio.run(gateway.text_to_image("binary tree", trace_id="image-fail"))
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert result["capability"] == "image"
+    assert "provider unavailable" in result["error"]
+
+
+def test_video_budget_hands_running_task_to_frontend(monkeypatch):
+    settings = _settings(mm_video_wait_budget_s=0.015)
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.seedance_client, "available", lambda: True)
+    monkeypatch.setattr(gateway.seedance_client, "create_task", lambda prompt, image_url=None: "task-1")
+    monkeypatch.setattr(
+        gateway.seedance_client,
+        "poll_task",
+        lambda task_id: {"status": "running", "task_id": task_id},
+    )
+
+    created = asyncio.run(gateway.video_create("demo", trace_id="video-create"))
+    waited = asyncio.run(
+        gateway.video_wait(
+            created["data"]["task_id"],
+            budget_s=0.015,
+            trace_id="video-wait",
+        )
+    )
+
+    assert created["ok"] is True
+    assert waited["ok"] is True
+    assert waited["degraded"] is False
+    assert waited["data"] == {"status": "running", "task_id": "task-1"}
+
+
+def test_demo_ocr_keeps_existing_sample_behavior(monkeypatch):
+    settings = _settings(spark_appid="", spark_api_key="", spark_api_secret="")
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway, "is_demo", lambda: True)
+    monkeypatch.setattr(gateway.spark_ocr, "image_to_question", lambda image, hint="": "演示题面")
+
+    result = asyncio.run(gateway.ocr_image(b"image", trace_id="ocr-demo"))
+
+    assert result["ok"] is True
+    assert result["data"]["text"] == "演示题面"

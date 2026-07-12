@@ -138,7 +138,7 @@ type ResourceItem = {
 
 | kind | payload 字段 | 前端组件 |
 | --- | --- | --- |
-| `doc` | `{ markdown, grounded }` | Markdown |
+| `doc` | `{ markdown, grounded, audio_url?, cover_url? }` | Markdown + 星火 TTS 口播 + 可选封面 |
 | `code` | `{ markdown, grounded }` | Markdown |
 | `reading` | `{ markdown, grounded }` | Markdown |
 | `mindmap` | `{ markmap }` | Markmap |
@@ -632,7 +632,7 @@ Content-Type: multipart/form-data
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `file` | File | 是 | 支持 `.txt`、`.md`、`.pdf`，单文件最大 8MB |
+| `file` | File | 是 | 支持 `.txt`、`.md`、`.pdf`、`.png`、`.jpg`、`.jpeg`，单文件最大 8MB；图片在上传时 OCR 一次并缓存到 sidecar |
 | `user_id` | string | 否 | 默认 `demo_user` |
 | `kp` | string | 否 | 资料对应知识点，例如 `binary_tree` |
 | `title` | string | 否 | 展示标题，不填则使用文件名 |
@@ -647,7 +647,7 @@ Content-Type: multipart/form-data
     "title": "二叉树课堂笔记",
     "filename": "note.txt",
     "kp": "binary_tree",
-    "source_type": "uploaded_text",
+    "source_type": "uploaded_text | uploaded_pdf | uploaded_image",
     "bytes": 1024,
     "chunk_count": 3,
     "status": "indexed",
@@ -694,6 +694,8 @@ GET /api/knowledge/search?query=二叉树中序遍历&kp=binary_tree&limit=5
 ```
 
 存储位置：上传原文和元数据只保存在本机 `backend/app/data/uploaded_sources/`，该目录被 `.gitignore` 忽略，不提交到 GitHub。
+
+图片资料的 OCR 文本物化在同名 `.meta.json` 的 `ocr` 字段中。索引重建和后续检索只读取该缓存，不会重复调用 OCR；OCR 失败时上传返回可读的 `400 detail`，并清理未完成文件。
 
 ## 5. 前后端对齐规则
 

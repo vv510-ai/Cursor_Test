@@ -5,12 +5,11 @@
 4) 讯飞文生图生成课程封面(可选)。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 
-from ..llm import seedance_client
+from ..llm import multimodal_gateway
 from ..llm.spark_client import llm_complete, parse_json
-from ..llm.spark_image import generate_image
-from ..llm.spark_tts import synthesize
 from ..services.knowledge_graph import kp_name
 from .emitter import agent_end, agent_start, emit
 
@@ -48,19 +47,29 @@ async def run(state: dict) -> dict:
                 "detail": f"分镜脚本就绪,共 {len(script.get('scenes', []))} 个镜头"})
 
     payload: dict = {"script": script}
-    mode = "seedance"
-    if seedance_client.available():
-        async def on_progress(p: dict):
-            await emit({"type": "progress", "agent": "media", "stage": "video",
-                        "percent": 25 + int(p.get("percent", 0) * 0.6),
-                        "detail": p.get("detail", "视频生成中…"), "task_id": p.get("task_id")})
-        video = await seedance_client.gen_video_async(script.get("video_prompt", name),
-                                                      on_progress=on_progress)
-        payload["video"] = video                                   # {status,url|task_id}
-        if video.get("status") == "degraded":
-            mode = "manim"
-    else:
-        mode = "manim"
+    trace_id = str(state.get("session_id", ""))
+
+    async def on_progress(p: dict):
+        await emit({"type": "progress", "agent": "media", "stage": "video",
+                    "percent": 25 + int(p.get("percent", 0) * 0.6),
+                    "detail": p.get("detail", "视频生成中…"), "task_id": p.get("task_id")})
+
+    mode = "manim"
+    created = await multimodal_gateway.video_create(
+        script.get("video_prompt", name), trace_id=trace_id,
+    )
+    if created["ok"]:
+        task_id = str(created["data"]["task_id"])
+        waited = await multimodal_gateway.video_wait(
+            task_id,
+            on_progress=on_progress,
+            trace_id=trace_id,
+        )
+        payload["video"] = waited["data"]
+        if waited["ok"]:
+            mode = "seedance"
+    elif created["data"]:
+        payload["video"] = created["data"]
 
     if mode == "manim":                                            # 降级链路
         cls = "Scene" + kp.title().replace("_", "")
@@ -70,14 +79,20 @@ async def run(state: dict) -> dict:
         await emit({"type": "progress", "agent": "media", "stage": "manim", "percent": 70,
                     "detail": "Seedance 未配置/失败,已降级为 Manim 动画代码(可本地渲染)"})
 
-    audio_url = synthesize(script["narration"][:260])              # 讯飞 TTS,demo 下为 None
-    if audio_url:
-        payload["audio_url"] = audio_url
-    cover = generate_image(f"数据结构教学插画:{name},蓝橙科技风,简洁示意图")
-    if cover:
-        payload["cover_url"] = cover
+    audio, cover = await asyncio.gather(
+        multimodal_gateway.tts(script["narration"][:260], trace_id=trace_id),
+        multimodal_gateway.text_to_image(
+            f"数据结构教学插画:{name},蓝橙科技风,简洁示意图",
+            trace_id=trace_id,
+        ),
+    )
+    if audio["ok"]:
+        payload["audio_url"] = audio["data"]["audio_url"]
+    if cover["ok"]:
+        payload["cover_url"] = cover["data"]["image_url"]
     await emit({"type": "progress", "agent": "media", "stage": "post", "percent": 100,
-                "detail": "旁白音频与封面处理完成"})
+                "detail": "旁白与封面处理完成"
+                if audio["ok"] or cover["ok"] else "旁白与封面不可用,已保留讲解脚本"})
 
     rid = uuid.uuid4().hex[:12]
     resource = {"id": rid, "kind": "video", "kp": kp,

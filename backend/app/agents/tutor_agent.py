@@ -6,8 +6,8 @@ from __future__ import annotations
 import asyncio
 import base64
 
+from ..llm import multimodal_gateway
 from ..llm.spark_client import llm_stream
-from ..llm.spark_ocr import image_to_question
 from ..rag.citation import build_context
 from ..rag.retriever import retrieve
 from ..safety.grounding import grounding_check
@@ -34,14 +34,26 @@ async def run(state: dict) -> dict:
     if extras.get("image_base64"):                      # 拍照搜题
         try:
             img = base64.b64decode(extras["image_base64"].split(",")[-1])
-            ocr_text = image_to_question(img, hint=question)
-            if ocr_text:
+            ocr = await multimodal_gateway.ocr_image(
+                img,
+                hint=question,
+                purpose="tutor",
+                trace_id=str(state.get("session_id", "")),
+            )
+            ocr_text = str(ocr["data"].get("text", ""))
+            if ocr["ok"] and ocr_text:
                 question = (question + "\n\n[图片题面] " + ocr_text).strip()
                 detail = "OCR 识题 + 文本问答"
                 await emit({"type": "progress", "agent": "tutor", "stage": "ocr",
                             "detail": "图片题面识别完成", "ocr": ocr_text[:120]})
-        except Exception:
-            pass
+            else:
+                await emit({"type": "progress", "agent": "tutor", "stage": "ocr",
+                            "percent": 100, "degraded": True,
+                            "detail": "图片识别失败,已按文字问题继续作答"})
+        except Exception as error:  # base64 输入异常也不得拖垮答疑
+            await emit({"type": "progress", "agent": "tutor", "stage": "ocr",
+                        "percent": 100, "degraded": True,
+                        "detail": f"图片解析失败,已按文字问题继续作答:{str(error)[:80]}"})
     question = question or "请讲讲二叉树的中序遍历"
     await agent_start("tutor", "答疑导师智能体", detail)
 

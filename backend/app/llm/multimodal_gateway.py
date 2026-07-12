@@ -1,0 +1,374 @@
+"""多模态统一网关:开关、超时、线程隔离、缓存与安全降级。
+
+文本大模型不经过本文件,仍只允许由 spark_client.llm_complete/llm_stream 调用。
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Awaitable, Callable
+
+from ..agents.emitter import emit
+from ..config import GEN_DIR, get_settings, is_demo
+from . import seedance_client, spark_image, spark_ocr, spark_tts
+
+log = logging.getLogger("sparklearn.multimodal")
+MMResult = dict[str, Any]
+
+
+def _trace_id(value: str) -> str:
+    return value or f"mm-{uuid.uuid4().hex[:8]}"
+
+
+def _error_text(error: BaseException | str) -> str:
+    return str(error).replace("\r", " ").replace("\n", " ")[:240]
+
+
+def _result(
+    capability: str,
+    trace_id: str,
+    started: float,
+    *,
+    ok: bool,
+    degraded: bool,
+    data: dict[str, Any] | None = None,
+    error: str = "",
+) -> MMResult:
+    return {
+        "ok": ok,
+        "degraded": degraded,
+        "data": data or {},
+        "error": error,
+        "capability": capability,
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+        "trace_id": trace_id,
+    }
+
+
+async def _record(result: MMResult, *, agent: str) -> None:
+    log.info(
+        "mm_call cap=%s trace=%s ok=%s degraded=%s ms=%s error=%s",
+        result["capability"],
+        result["trace_id"],
+        int(bool(result["ok"])),
+        int(bool(result["degraded"])),
+        result["elapsed_ms"],
+        result["error"],
+    )
+    detail = (
+        f"{result['capability']} 处理完成"
+        if result["ok"]
+        else f"{result['capability']} 已安全降级: {result['error']}"
+    )
+    try:
+        await emit({
+            "type": "progress",
+            "agent": agent,
+            "stage": result["capability"],
+            "percent": 100,
+            "detail": detail,
+            "trace_id": result["trace_id"],
+            "degraded": result["degraded"],
+        })
+    except Exception:  # noqa: BLE001
+        log.debug("多模态 progress 事件写入失败", exc_info=True)
+
+
+def _triplet_configured() -> bool:
+    s = get_settings()
+    return bool(s.spark_appid and s.spark_api_key and s.spark_api_secret)
+
+
+def capability_status() -> dict[str, dict[str, bool]]:
+    s = get_settings()
+    triplet = _triplet_configured()
+    demo = is_demo()
+    return {
+        "ocr": {"enabled": bool(s.mm_ocr_enabled), "configured": bool(triplet or demo)},
+        "tts": {"enabled": bool(s.mm_tts_enabled), "configured": bool(triplet and not demo)},
+        "image": {"enabled": bool(s.mm_image_enabled), "configured": bool(triplet and not demo)},
+        "video": {
+            "enabled": bool(s.mm_video_enabled),
+            "configured": bool(seedance_client.available() and not demo),
+        },
+    }
+
+
+async def _run_sync(
+    capability: str,
+    func: Callable[[], Any],
+    normalize: Callable[[Any], dict[str, Any]],
+    *,
+    enabled: bool,
+    configured: bool,
+    timeout_s: float,
+    trace_id: str,
+    agent: str,
+) -> MMResult:
+    started = time.monotonic()
+    trace_id = _trace_id(trace_id)
+    if not enabled:
+        result = _result(capability, trace_id, started, ok=False, degraded=True, error="capability disabled")
+        await _record(result, agent=agent)
+        return result
+    if not configured:
+        result = _result(capability, trace_id, started, ok=False, degraded=True, error="credentials not configured")
+        await _record(result, agent=agent)
+        return result
+    try:
+        raw = await asyncio.wait_for(asyncio.to_thread(func), timeout=max(0.01, timeout_s))
+        data = normalize(raw)
+        result = _result(capability, trace_id, started, ok=True, degraded=False, data=data)
+    except TimeoutError:
+        result = _result(
+            capability,
+            trace_id,
+            started,
+            ok=False,
+            degraded=True,
+            error=f"timeout after {timeout_s:g}s",
+        )
+    except Exception as error:  # noqa: BLE001
+        result = _result(
+            capability,
+            trace_id,
+            started,
+            ok=False,
+            degraded=True,
+            error=_error_text(error),
+        )
+    await _record(result, agent=agent)
+    return result
+
+
+async def ocr_image(
+    image_bytes: bytes,
+    *,
+    hint: str = "",
+    purpose: str = "tutor",
+    trace_id: str = "",
+) -> MMResult:
+    s = get_settings()
+    timeout_s = s.mm_ocr_ingest_timeout_s if purpose == "ingest" else s.mm_ocr_tutor_timeout_s
+
+    def normalize(text: Any) -> dict[str, Any]:
+        value = str(text or "").strip()
+        if not value or value.startswith("("):
+            raise RuntimeError(value or "OCR returned no text")
+        return {"text": value, "chars": len(value), "engine": "spark_image_understanding"}
+
+    return await _run_sync(
+        "ocr",
+        lambda: spark_ocr.image_to_question(image_bytes, hint=hint),
+        normalize,
+        enabled=bool(s.mm_ocr_enabled),
+        configured=bool(_triplet_configured() or is_demo()),
+        timeout_s=float(timeout_s),
+        trace_id=trace_id,
+        agent="tutor" if purpose == "tutor" else "media",
+    )
+
+
+async def tts(
+    text: str,
+    *,
+    voice: str = "xiaoyan",
+    trace_id: str = "",
+) -> MMResult:
+    s = get_settings()
+    digest = hashlib.sha1(f"{voice}\0{text}".encode("utf-8")).hexdigest()[:16]
+    filename = f"tts_{digest}.mp3"
+    cached = GEN_DIR / filename
+    if bool(s.mm_tts_enabled) and cached.exists() and cached.stat().st_size > 0:
+        started = time.monotonic()
+        result = _result(
+            "tts",
+            _trace_id(trace_id),
+            started,
+            ok=True,
+            degraded=False,
+            data={"audio_url": f"/static/gen/{filename}", "cached": True},
+        )
+        await _record(result, agent="media")
+        return result
+
+    def normalize(url: Any) -> dict[str, Any]:
+        if not url:
+            raise RuntimeError("TTS returned no audio")
+        return {"audio_url": str(url), "cached": False}
+
+    return await _run_sync(
+        "tts",
+        lambda: spark_tts.synthesize(text, voice=voice, filename=filename),
+        normalize,
+        enabled=bool(s.mm_tts_enabled),
+        configured=bool(_triplet_configured() and not is_demo()),
+        timeout_s=float(s.mm_tts_timeout_s),
+        trace_id=trace_id,
+        agent="media",
+    )
+
+
+async def text_to_image(
+    prompt: str,
+    *,
+    width: int = 1024,
+    height: int = 768,
+    trace_id: str = "",
+) -> MMResult:
+    s = get_settings()
+    digest = hashlib.sha1(f"{width}x{height}\0{prompt}".encode("utf-8")).hexdigest()[:16]
+    filename = f"img_{digest}.jpg"
+    cached = GEN_DIR / filename
+    if bool(s.mm_image_enabled) and cached.exists() and cached.stat().st_size > 0:
+        started = time.monotonic()
+        result = _result(
+            "image",
+            _trace_id(trace_id),
+            started,
+            ok=True,
+            degraded=False,
+            data={"image_url": f"/static/gen/{filename}", "cached": True},
+        )
+        await _record(result, agent="media")
+        return result
+
+    def normalize(url: Any) -> dict[str, Any]:
+        if not url:
+            raise RuntimeError("image generation returned no image")
+        source = GEN_DIR / Path(str(url)).name
+        if not source.exists() or source.stat().st_size == 0:
+            raise RuntimeError("image file was not written")
+        if source != cached:
+            source.replace(cached)
+        return {"image_url": f"/static/gen/{filename}", "cached": False}
+
+    return await _run_sync(
+        "image",
+        lambda: spark_image.generate_image(prompt, width=width, height=height),
+        normalize,
+        enabled=bool(s.mm_image_enabled),
+        configured=bool(_triplet_configured() and not is_demo()),
+        timeout_s=float(s.mm_image_timeout_s),
+        trace_id=trace_id,
+        agent="media",
+    )
+
+
+async def video_create(
+    prompt: str,
+    *,
+    image_url: str | None = None,
+    trace_id: str = "",
+) -> MMResult:
+    s = get_settings()
+    return await _run_sync(
+        "video",
+        lambda: seedance_client.create_task(prompt, image_url),
+        lambda task_id: {"task_id": str(task_id), "status": "running"},
+        enabled=bool(s.mm_video_enabled),
+        configured=bool(seedance_client.available() and not is_demo()),
+        timeout_s=float(s.mm_video_create_timeout_s),
+        trace_id=trace_id,
+        agent="media",
+    )
+
+
+async def video_wait(
+    task_id: str,
+    *,
+    budget_s: float | None = None,
+    on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    trace_id: str = "",
+) -> MMResult:
+    s = get_settings()
+    started = time.monotonic()
+    trace_id = _trace_id(trace_id)
+    budget = float(budget_s if budget_s is not None else s.mm_video_wait_budget_s)
+    if is_demo() or not s.mm_video_enabled or not seedance_client.available():
+        result = _result("video", trace_id, started, ok=False, degraded=True, error="video unavailable")
+        await _record(result, agent="media")
+        return result
+
+    tick = 0
+    try:
+        while time.monotonic() - started < budget:
+            remaining = max(0.01, budget - (time.monotonic() - started))
+            try:
+                state = await asyncio.wait_for(
+                    asyncio.to_thread(seedance_client.poll_task, task_id),
+                    timeout=min(float(s.mm_video_poll_timeout_s), remaining),
+                )
+            except TimeoutError:
+                break
+            tick += 1
+            status = str(state.get("status", "running"))
+            if on_progress:
+                await on_progress({
+                    "percent": min(95, tick * 7),
+                    "status": status,
+                    "detail": f"Seedance task {status}",
+                    "task_id": task_id,
+                })
+            if status == "succeeded":
+                result = _result("video", trace_id, started, ok=True, degraded=False, data=state)
+                await _record(result, agent="media")
+                return result
+            if status == "failed":
+                result = _result(
+                    "video",
+                    trace_id,
+                    started,
+                    ok=False,
+                    degraded=True,
+                    data=state,
+                    error=_error_text(state.get("error", "Seedance failed")),
+                )
+                await _record(result, agent="media")
+                return result
+            await asyncio.sleep(min(3.0, max(0.0, budget - (time.monotonic() - started))))
+        result = _result(
+            "video",
+            trace_id,
+            started,
+            ok=True,
+            degraded=False,
+            data={"status": "running", "task_id": task_id},
+        )
+    except Exception as error:  # noqa: BLE001
+        result = _result(
+            "video",
+            trace_id,
+            started,
+            ok=False,
+            degraded=True,
+            data={"status": "degraded", "task_id": task_id, "reason": _error_text(error)},
+            error=_error_text(error),
+        )
+    await _record(result, agent="media")
+    return result
+
+
+async def video_poll(task_id: str, *, trace_id: str = "") -> dict[str, Any]:
+    s = get_settings()
+    result = await _run_sync(
+        "video",
+        lambda: seedance_client.poll_task(task_id),
+        lambda state: dict(state),
+        enabled=bool(s.mm_video_enabled),
+        configured=bool(seedance_client.available() and not is_demo()),
+        timeout_s=float(s.mm_video_poll_timeout_s),
+        trace_id=trace_id,
+        agent="media",
+    )
+    if result["ok"]:
+        return result["data"]
+    return {
+        "status": "degraded",
+        "task_id": task_id,
+        "reason": result["error"],
+    }

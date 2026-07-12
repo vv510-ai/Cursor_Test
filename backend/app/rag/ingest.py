@@ -23,7 +23,8 @@ CHUNK = 420
 OVERLAP = 50
 MANIFEST = DATA_DIR / "vector_store_manifest.json"
 SUPPORTED_EXTRA = {".md", ".txt", ".json"}
-SUPPORTED_UPLOAD = {".md", ".txt", ".pdf"}
+SUPPORTED_UPLOAD = {".md", ".txt", ".pdf", ".png", ".jpg", ".jpeg"}
+IMAGE_UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg"}
 INACTIVE_SOURCE_STATUSES = {"quarantined", "inactive"}
 
 
@@ -343,6 +344,25 @@ def _load_uploaded_source(path: Path) -> list[dict[str, Any]]:
                     tags=tags,
                     source_id=source_id,
                 ))
+        return chunks
+
+    if suffix in IMAGE_UPLOAD_SUFFIXES:
+        ocr = meta.get("ocr") if isinstance(meta.get("ocr"), dict) else {}
+        body = str(ocr.get("text") or "").strip()
+        if not body:
+            return []
+        for page, piece in enumerate(_split(body), start=1):
+            chunks.append(_chunk_record(
+                text=piece,
+                source=source,
+                chapter=chapter,
+                kp=kp,
+                page=page,
+                source_type=source_type,
+                url=url,
+                tags=tags,
+                source_id=source_id,
+            ))
         return chunks
 
     body = _read_text(path)

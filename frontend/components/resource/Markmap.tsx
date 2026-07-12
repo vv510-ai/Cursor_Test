@@ -1,5 +1,6 @@
 "use client";
-/** Markmap 交互脑图:markmap-lib/view 经 CDN 渲染;失败降级为 Markdown 大纲文本。 */
+/** Markmap 交互脑图:markmap-lib/view 经 CDN 渲染;失败降级为 Markdown 大纲文本。
+ *  浅色企业主题 + 个性化标注图例(✅已掌握 / ⚠️待巩固 / 🔒先修未解锁,来自学生画像)。 */
 import { useEffect, useRef, useState } from "react";
 import { getMarkmap } from "@/lib/cdn";
 
@@ -7,7 +8,7 @@ const MARKMAP_LIB_ESM_URL = "https://cdn.jsdelivr.net/npm/markmap-lib@0.17.2/+es
 const MARKMAP_VIEW_ESM_URL = "https://cdn.jsdelivr.net/npm/markmap-view@0.17.2/+esm";
 
 const MARKMAP_JSON_OPTIONS = {
-  color: ["#38bdf8", "#818cf8", "#22c55e", "#f59e0b", "#f472b6", "#2dd4bf"],
+  color: ["#0F6B50", "#7c3aed", "#059669", "#d97706", "#db2777", "#0d9488"],
   colorFreezeLevel: 2,
   duration: 220,
   fitRatio: 0.9,
@@ -59,6 +60,12 @@ function instantTransition(selection: D3SelectionLike) {
   return chain(selection);
 }
 
+type MarkmapInstance = {
+  setData: (data: unknown) => void;
+  transition: (selection: D3SelectionLike) => unknown;
+  fit?: () => void;
+};
+
 type MarkmapRuntime = {
   Markmap: { create: (el: SVGElement, opts: object | undefined, data: unknown) => unknown };
   Transformer: new () => { transform: (md: string) => { root: unknown } };
@@ -77,9 +84,19 @@ async function loadMarkmapRuntime(): Promise<MarkmapRuntime> {
   }
 }
 
+const LEGEND: [string, string][] = [
+  ["✅", "已掌握"],
+  ["⚠️", "可学习 · 待巩固"],
+  ["🔒", "先修未解锁"],
+];
+
 export default function Markmap({ markdown }: { markdown: string }) {
   const ref = useRef<SVGSVGElement>(null);
+  const mmRef = useRef<MarkmapInstance | null>(null);
   const [failed, setFailed] = useState(false);
+  const [tall, setTall] = useState(false);
+  const hasPersonalMarks = /[✅⚠🔒]/.test(markdown);
+
   useEffect(() => {
     let alive = true;
     setFailed(false);
@@ -95,24 +112,29 @@ export default function Markmap({ markdown }: { markdown: string }) {
         };
         if (!alive || !ref.current) return;
         ref.current.innerHTML = "";
-        const markmap = mm.Markmap.create(ref.current, options, null) as {
-          setData: (data: unknown) => void;
-          transition: (selection: D3SelectionLike) => unknown;
-        };
+        const markmap = mm.Markmap.create(ref.current, options, null) as MarkmapInstance;
         markmap.transition = instantTransition;
         markmap.setData(root);
+        mmRef.current = markmap;
       } catch {
         if (alive) setFailed(true);
       }
     })();
     return () => {
       alive = false;
+      mmRef.current = null;
     };
   }, [markdown]);
 
+  useEffect(() => {
+    // 高度切换后重新适配视图
+    const t = window.setTimeout(() => mmRef.current?.fit?.(), 60);
+    return () => window.clearTimeout(t);
+  }, [tall]);
+
   if (!markdown.trim()) {
     return (
-      <div className="border-y border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
+      <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
         <div className="font-bold">脑图内容为空</div>
         <div className="mt-1 text-xs leading-5 text-orange-700">当前资源没有可渲染的 Markdown 层级。</div>
       </div>
@@ -121,15 +143,48 @@ export default function Markmap({ markdown }: { markdown: string }) {
 
   if (failed)
     return (
-      <pre className="max-h-72 overflow-auto rounded-lg border border-hairline bg-[#0a0f22] p-3 text-xs leading-6 text-body">
-        {markdown}
-      </pre>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="mb-2 text-xs text-slate-500">脑图运行库加载失败,已降级为大纲文本(内容不受影响)。</div>
+        <pre className="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-700">
+          {markdown}
+        </pre>
+      </div>
     );
+
   return (
-    <div className="markmap-dark rounded-lg border border-hairline bg-[#08111f] p-3 shadow-inner shadow-black/20">
+    <div className="markmap-light rounded-lg border border-slate-200 bg-white p-2">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
+        {hasPersonalMarks ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-600">画像标注</span>
+            {LEGEND.map(([mark, label]) => (
+              <span key={mark} className="inline-flex items-center gap-1">
+                <span>{mark}</span>
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-[11px] text-slate-400">拖拽平移 · 滚轮缩放 · 点击节点折叠</span>
+        )}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => mmRef.current?.fit?.()}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+          >
+            适配视图
+          </button>
+          <button
+            onClick={() => setTall((v) => !v)}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+          >
+            {tall ? "恢复高度" : "放大查看"}
+          </button>
+        </div>
+      </div>
       <svg
         ref={ref}
-        className="h-80 w-full rounded-md bg-[#0a0f22] [&_.markmap-foreign]:!text-[#dbeafe] [&_.markmap-foreign]:!text-[12px] [&_.markmap-link]:!opacity-80 [&_circle]:!stroke-[2px]"
+        className={`w-full rounded-md bg-slate-50/60 transition-all ${tall ? "h-[32rem]" : "h-80"} [&_circle]:!stroke-[2px]`}
       />
     </div>
   );

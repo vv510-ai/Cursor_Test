@@ -39,9 +39,16 @@ export async function getMermaid() {
   if (!mermaidReady) {
     window.mermaid.initialize({
       startOnLoad: false,
-      theme: "dark",
-      darkMode: true,
-      themeVariables: { primaryColor: "#15203a", primaryBorderColor: "#38bdf8", lineColor: "#7c8db0", primaryTextColor: "#c7d2e8" },
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#eff6ff",
+        primaryBorderColor: "#93c5fd",
+        primaryTextColor: "#1e3a8a",
+        lineColor: "#94a3b8",
+        secondaryColor: "#f1f5f9",
+        tertiaryColor: "#ffffff",
+        fontSize: "13px",
+      },
     });
     mermaidReady = true;
   }

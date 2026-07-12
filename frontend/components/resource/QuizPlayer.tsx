@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Badge, Notice, Stat, masteryTone } from "@/components/ui";
 import { USER_ID, apiPost } from "@/lib/api";
-import type { QuizQuestion } from "@/lib/types";
+import type { PathPlan, QuizQuestion } from "@/lib/types";
 
 interface Report {
   accuracy: number;
@@ -15,6 +16,8 @@ interface Report {
   }[];
   per_kp: { name: string; mastery: number; level: string; right: number; n: number }[];
   suggestions: string[];
+  path?: PathPlan;
+  profile_version?: number;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -47,7 +50,7 @@ export default function QuizPlayer({
 }: {
   resourceId: string;
   questions: QuizQuestion[];
-  onEvaluated?: () => void;
+  onEvaluated?: (report: Report) => void;
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -62,15 +65,20 @@ export default function QuizPlayer({
     () => Object.fromEntries((report?.items || []).map((item) => [item.question_id, item])),
     [report],
   );
+  const wrongTags = useMemo(() => {
+    return Array.from(
+      new Set(
+        (report?.items || [])
+          .filter((item) => !item.correct)
+          .flatMap((item) => item.error_tags || []),
+      ),
+    );
+  }, [report]);
+  const answered = Object.keys(answers).filter((id) => answers[id]).length;
   const set = (id: string, v: string) => !submitted && setAnswers((a) => ({ ...a, [id]: v }));
 
   if (questions.length === 0) {
-    return (
-      <div className="border-y border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-800">
-        <div className="font-bold">题组为空</div>
-        <div className="mt-1 text-xs leading-5 text-orange-700">当前资源没有可作答的问题。</div>
-      </div>
-    );
+    return <Notice tone="warn" title="题组为空" desc="当前资源没有可作答的问题。" />;
   }
 
   async function submit() {
@@ -90,7 +98,7 @@ export default function QuizPlayer({
         behavior: {},
       });
       setReport(rep);
-      onEvaluated?.();
+      onEvaluated?.(rep);
     } catch {
       setReport(null);
     } finally {
@@ -99,20 +107,35 @@ export default function QuizPlayer({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] leading-4 text-slate-500">
+        <Badge variant="info">练习会校准画像</Badge>
+        <span>提交后会自动判分、更新掌握度、记录错因,并调整后续学习安排。</span>
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-3">
+        <Stat label="题目数" value={questions.length} tone="neutral" />
+        <Stat label="已作答" value={answered} tone={answered === questions.length ? "success" : "action"} />
+        <Stat label="状态" value={submitted ? "已提交" : "待提交"} tone={submitted ? "success" : "muted"} />
+      </div>
+
       {questions.map((q, i) => {
         const mine = answers[q.id] || "";
         const gradedItem = graded[q.id];
         const ok = gradedItem ? Boolean(gradedItem.correct) : results[q.id];
         const expected = gradedItem?.expected || q.answer;
         return (
-          <div key={q.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="mb-2 flex items-start gap-2 text-sm text-slate-900">
-              <span className="font-mono text-[10px] leading-5 text-blue-600">Q{i + 1}</span>
-              <span className="flex-1 font-medium">{q.stem}</span>
-              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-1 font-mono text-[10px] text-slate-500">
-                {TYPE_LABEL[q.type] || q.type} · D{q.difficulty}
-              </span>
+          <div key={q.id} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-start gap-2">
+              <Badge variant="info" mono>Q{i + 1}</Badge>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold leading-6 text-slate-950">{q.stem}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Badge variant="neutral">{TYPE_LABEL[q.type] || q.type}</Badge>
+                  <Badge variant="neutral" mono>D{q.difficulty}</Badge>
+                  {q.error_tags?.slice(0, 2).map((tag) => <Badge key={tag} variant="warn">{tag}</Badge>)}
+                </div>
+              </div>
             </div>
 
             {q.type === "single" || (q.type === "complexity" && q.options.length > 0) ? (
@@ -131,12 +154,12 @@ export default function QuizPlayer({
                           : chosen
                             ? submitted
                               ? "border-rose-300 bg-rose-50 text-rose-700"
-                              : "border-blue-300 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
                       }`}
                     >
-                      <span className="mr-2 font-mono text-[10px] text-blue-600">{tag}</span>
-                      {op.replace(/^[A-D][.、:：]\s*/, "")}
+                      <span className="mr-2 font-mono text-[11px] font-bold text-emerald-600">{tag}</span>
+                      {op.replace(/^[A-D][.、：:\s]*/, "")}
                     </button>
                   );
                 })}
@@ -150,14 +173,14 @@ export default function QuizPlayer({
                     <button
                       key={v}
                       onClick={() => set(q.id, v)}
-                      className={`rounded-lg border px-4 py-2 text-xs ${
+                      className={`rounded-lg border px-4 py-2 text-xs font-bold ${
                         isAns
                           ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                           : chosen
                             ? submitted
                               ? "border-rose-300 bg-rose-50 text-rose-700"
-                              : "border-blue-300 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-blue-200"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-emerald-200"
                       }`}
                     >
                       {v}
@@ -171,18 +194,18 @@ export default function QuizPlayer({
                 onChange={(e) => set(q.id, e.target.value)}
                 rows={q.type === "fill" ? 1 : 3}
                 placeholder={q.type === "fill" ? "填写答案" : "写下你的思路与答案"}
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
               />
             )}
 
             {submitted && (
-              <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
-                {ok ? "回答正确" : `参考答案：${expected}`}
-                {(gradedItem?.explain || q.explain) && <span className="mt-1 block text-slate-600">{gradedItem?.explain || q.explain}</span>}
+              <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
+                <div className="font-bold">{ok ? "回答正确" : `参考答案：${expected}`}</div>
+                {(gradedItem?.explain || q.explain) && <div className="mt-1 text-slate-600">{gradedItem?.explain || q.explain}</div>}
                 {!ok && (gradedItem?.error_tags || q.error_tags)?.length > 0 && (
-                  <span className="mt-1 block font-mono text-[10px] text-orange-700">
-                    错因标签：{(gradedItem?.error_tags || q.error_tags).join(" / ")}，已回写画像
-                  </span>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {(gradedItem?.error_tags || q.error_tags).map((tag) => <Badge key={tag} variant="warn">{tag}</Badge>)}
+                  </div>
                 )}
               </div>
             )}
@@ -194,40 +217,66 @@ export default function QuizPlayer({
         <button
           onClick={submit}
           disabled={Object.keys(answers).length === 0}
-          className="w-full rounded-lg bg-orange-500 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-full rounded-lg bg-emerald-600 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           提交并更新掌握度
         </button>
       ) : busy ? (
-        <div className="text-center font-mono text-xs text-slate-500">评估智能体计算中...</div>
+        <div className="text-center font-mono text-xs text-slate-500">正在判分并更新掌握度...</div>
       ) : report ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs">
-          <div className="mb-1 font-mono text-[10px] tracking-[0.18em] text-blue-600">EVAL REPORT</div>
-          <div className="text-slate-700">
-            正确率 <span className="font-mono text-blue-700">{Math.round(report.accuracy * 100)}%</span>
-            {report.per_kp.map((p) => (
-              <span key={p.name} className="ml-3">
-                {p.name} 掌握度 <span className="font-mono text-emerald-700">{Math.round(p.mastery * 100)}%</span>({p.level})
-              </span>
-            ))}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs">
+          <div className="mb-3 font-mono text-[11px] tracking-[0.18em] text-emerald-600">EVAL REPORT</div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Stat label="正确率" value={`${Math.round(report.accuracy * 100)}%`} tone={report.accuracy >= 0.7 ? "success" : "warn"} />
+            <Stat label="知识点" value={report.per_kp[0]?.name || "-"} tone="neutral" />
+            <Stat
+              label="掌握度"
+              value={report.per_kp[0] ? `${Math.round(report.per_kp[0].mastery * 100)}%` : "-"}
+              tone={report.per_kp[0] ? masteryTone(report.per_kp[0].mastery) : "muted"}
+            />
           </div>
-          <ul className="mt-2 space-y-1 text-slate-600">
-            {report.suggestions.map((s, i) => (
-              <li key={i}>· {s}</li>
-            ))}
-          </ul>
+          <div className="mt-4 grid gap-2 md:grid-cols-4">
+            <div className="rounded-lg border border-emerald-200 bg-white p-3">
+              <Badge variant="success" mono>01</Badge>
+              <div className="mt-2 text-xs font-bold text-slate-900">判分完成</div>
+              <div className="mt-1 text-[11px] leading-5 text-slate-500">
+                {report.items?.filter((item) => item.correct).length ?? Math.round(report.accuracy * questions.length)} / {questions.length} 题正确
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-white p-3">
+              <Badge variant="info" mono>02</Badge>
+              <div className="mt-2 text-xs font-bold text-slate-900">掌握度回写</div>
+              <div className="mt-1 text-[11px] leading-5 text-slate-500">
+                {report.per_kp[0] ? `${report.per_kp[0].name} ${Math.round(report.per_kp[0].mastery * 100)}%` : "等待评估"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-orange-200 bg-white p-3">
+              <Badge variant={wrongTags.length ? "warn" : "neutral"} mono>03</Badge>
+              <div className="mt-2 text-xs font-bold text-slate-900">错因标签</div>
+              <div className="mt-1 text-[11px] leading-5 text-slate-500">
+                {wrongTags.length ? wrongTags.slice(0, 3).join(" / ") : "暂无错因"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <Badge variant="info" mono>04</Badge>
+              <div className="mt-2 text-xs font-bold text-slate-900">后续安排</div>
+              <div className="mt-1 text-[11px] leading-5 text-slate-500">
+                {report.path?.next_kp ? `下一步：${report.path.next_kp}` : "系统会按新掌握度调整下一步"}
+              </div>
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <a href="/eval" className="rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-blue-700">
-              查看学情评估
-            </a>
-            <a href="/path" className="rounded-md border border-blue-200 bg-white px-3 py-1.5 text-[11px] font-bold text-blue-700 transition hover:bg-blue-50">
-              查看学习路径
-            </a>
+            {report.suggestions.map((s, i) => <Badge key={i} variant="info">{s}</Badge>)}
           </div>
-          <div className="mt-2 font-mono text-[10px] text-slate-500">学习路径已按新掌握度自动重排</div>
+          {report.profile_version != null && (
+            <div className="mt-3 rounded-md border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-emerald-700">
+              学习档案已更新到 v{report.profile_version}
+            </div>
+          )}
+          <div className="mt-2 font-mono text-[11px] text-slate-500">后续学习安排已按新掌握度更新</div>
         </div>
       ) : (
-        <div className="text-center text-xs text-slate-500">报告获取失败，可稍后在“学情评估”页查看。</div>
+        <Notice tone="warn" title="报告获取失败" desc="可稍后在本页重新提交或刷新查看。" />
       )}
     </div>
   );

@@ -20,7 +20,19 @@ export function postSSE(
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
-        onEvent({ type: "error", detail: `HTTP ${res.status}` });
+        let detail = `HTTP ${res.status}`;
+        try {
+          const data = await res.json() as { detail?: string };
+          detail = data.detail || detail;
+        } catch {
+          try {
+            const text = await res.text();
+            if (text) detail = `${detail}: ${text.slice(0, 180)}`;
+          } catch {
+            /* keep status only */
+          }
+        }
+        onEvent({ type: "error", detail });
         return;
       }
       const reader = res.body.getReader();

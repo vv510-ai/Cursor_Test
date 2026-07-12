@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 
+from ..llm import multimodal_gateway
 from ..llm.spark_client import llm_complete
 from ..rag.citation import build_context, used_indices
 from ..rag.retriever import retrieve
@@ -74,7 +76,32 @@ def _ensure_visible_citations(md: str, n_citations: int) -> str:
     return md.rstrip() + f"\n\n## 引用说明\n本文核心概念、算法操作和复杂度说明来自检索到的课程资料 {refs}。"
 
 
-async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], goal: str) -> dict:
+def _narration_text(name: str, markdown: str, limit: int = 240) -> str:
+    text = re.sub(r"```.*?```", "", markdown, flags=re.S)
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"\[\^\d+\]", "", text)
+    text = re.sub(r"[#>*_`|~-]+", " ", text)
+    text = " ".join(text.split())
+    prefix = f"本节讲解{name}。"
+    return (prefix + text)[:limit]
+
+
+def _cover_prompt(name: str) -> str:
+    return (
+        f"数据结构教学插画：{name}。清晰展示核心结构与关系，"
+        "简洁学术风，浅色背景，绿色重点标注，无人物，无装饰文字。"
+    )
+
+
+async def _gen_one(
+    kind: str,
+    kp: str,
+    profile: dict,
+    *,
+    source_ids: list[str],
+    goal: str,
+    trace_id: str,
+) -> dict:
     name = kp_name(kp)
     label, tpl = _STYLE.get(kind, _STYLE["doc"])
     chunks = retrieve(
@@ -127,9 +154,29 @@ async def _gen_one(kind: str, kp: str, profile: dict, *, source_ids: list[str], 
     used = used_indices(md, len(citations))
     cite_used = [citations[i - 1] for i in used if 0 < i <= len(citations)] or citations[:3]
     rid = uuid.uuid4().hex[:12]
+    payload = {"markdown": md, "grounded": ground.get("grounded", True)}
+    if kind == "doc":
+        audio, cover = await asyncio.gather(
+            multimodal_gateway.tts(
+                _narration_text(name, md),
+                trace_id=trace_id,
+            ),
+            multimodal_gateway.text_to_image(
+                _cover_prompt(name),
+                width=1024,
+                height=768,
+                trace_id=trace_id,
+            ),
+            return_exceptions=True,
+        )
+        if isinstance(audio, dict) and audio.get("ok"):
+            payload["audio_url"] = audio["data"]["audio_url"]
+        if isinstance(cover, dict) and cover.get("ok"):
+            payload["cover_url"] = cover["data"]["image_url"]
+
     resource = {"id": rid, "kind": kind, "kp": kp,
                 "title": f"{name}·{label}",
-                "payload": {"markdown": md, "grounded": ground.get("grounded", True)},
+                "payload": payload,
                 "citations": [c["citation"] for c in cite_used]}
     await emit({"type": "resource", "resource": resource})
     await emit({"type": "citations", "agent": "doc", "items": resource["citations"]})
@@ -146,11 +193,19 @@ async def run(state: dict) -> dict:
     profile = state.get("student_profile") or {}
     source_ids = [str(x) for x in (state.get("source_ids") or []) if str(x).strip()]
     goal = state.get("learning_goal") or ""
+    trace_id = str(state.get("session_id") or "")
     await agent_start("doc", "文档智能体",
                       f"RAG 检索→引用生成→双层防幻觉校验({'/'.join(kinds)})")
     resources, flags = {}, []
     for kind in kinds:
-        out = await _gen_one(kind, kps[0], profile, source_ids=source_ids, goal=goal)
+        out = await _gen_one(
+            kind,
+            kps[0],
+            profile,
+            source_ids=source_ids,
+            goal=goal,
+            trace_id=trace_id,
+        )
         resources[out["resource"]["id"]] = out["resource"]
         flags += out["flags"]
     n_cite = sum(len(r["citations"]) for r in resources.values())

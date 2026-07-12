@@ -2,13 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Phase 0 · 语义色 token(全站唯一色彩语义来源)
+   规则:一个颜色只承担一种语义。
+   - action  松绿 操作 / 选中 / 进行中 / 推荐焦点
+   - success 绿   成功 / 已掌握 / 完成
+   - warn    橙   警示 / 薄弱 / 待复核 / 错因(orange 全站仅此一职)
+   - danger  玫红 错误 / 失败
+   - 中性   slate 锁定 / 空闲 / 说明文字(灰字下限 slate-500)
+   配套规范:
+   - 圆角三档:面板 rounded-xl / 内部块 rounded-lg / 徽章 rounded-md
+   - 字号地板:mono 微标 11px / 正文最小 12px
+   ============================================================ */
 :root {
+  --c-action: #0f6b50;
+  --c-action-soft: #e3f0e9;
+  --c-accent: #9c4a21;
+  --c-success: #087f5b;
+  --c-warn: #c2410c;
+  --c-danger: #b3261e;
+  --c-line: #e5e9e3;
+  --c-text-dim: #57635a;
+  --c-ink: #182119;
+  --c-paper: #f4f6f2;
+  --c-surface: #ffffff;
+  --c-surface-soft: #fbfcfa;
+  --c-console: #0e1411;
+  --c-console-soft: #151d18;
+  --shadow-panel: 0 2px 6px rgba(18, 30, 22, 0.07), 0 20px 48px rgba(18, 30, 22, 0.11);
+  --shadow-card: 0 1px 2px rgba(18, 30, 22, 0.05), 0 6px 20px rgba(18, 30, 22, 0.06);
+
+  /* 旧别名保留并指向新 token,存量组件零改名即可对齐语义 */
   --ink: #f6f8fb;
   --panel: #ffffff;
-  --hairline: #dbe3ee;
-  --spark: #2563eb;
-  --ember: #f97316;
-  --mint: #059669;
+  --hairline: var(--c-line);
+  --spark: var(--c-action);
+  --ember: var(--c-warn);
+  --mint: var(--c-success);
 }
 
 html,
@@ -17,15 +47,31 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(circle at 20% -10%, rgba(37, 99, 235, 0.10), transparent 32rem),
-    linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
-  color: #1f2937;
+  background: #f1f3ef;
+  color: var(--c-ink);
+  font-family:
+    Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   font-feature-settings: "tnum" 1;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(24, 33, 25, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 33, 25, 0.018) 1px, transparent 1px);
+  background-size: 28px 28px;
+  z-index: -1;
+}
+
+body::after {
+  content: none;
+}
+
 ::selection {
-  background: rgba(37, 99, 235, 0.18);
+  background: rgba(15, 107, 80, 0.18);
 }
 
 * {
@@ -51,16 +97,163 @@ body {
   display: none;
 }
 
+/* Phase A:玻璃拟态收敛为企业级白面板(1px 线 + 极浅阴影,无大范围投影) */
 .glass-panel {
-  border: 1px solid rgba(203, 213, 225, 0.85);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-card);
 }
 
+.role-gate-shell {
+  background: #eef1ec;
+  background-image:
+    linear-gradient(rgba(24, 33, 25, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 33, 25, 0.022) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.role-card-premium {
+  border: 1px solid rgba(24, 33, 25, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 2px rgba(18, 30, 22, 0.04), 0 14px 34px rgba(18, 30, 22, 0.08);
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1), border-color 260ms ease, box-shadow 260ms ease;
+}
+
+.role-card-premium:hover {
+  transform: translateY(-4px);
+  border-color: rgba(15, 107, 80, 0.35);
+  box-shadow: 0 2px 6px rgba(18, 30, 22, 0.06), 0 24px 54px rgba(18, 30, 22, 0.13);
+}
+
+.app-shell {
+  background: #eef1ec;
+}
+
+.topbar-premium {
+  border-bottom: 1px solid rgba(24, 33, 25, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(16px);
+}
+
+.sidebar-premium {
+  border-right: 1px solid rgba(24, 33, 25, 0.1);
+  background: rgba(249, 250, 247, 0.96);
+}
+
+.workspace-canvas {
+  background: #f2f4f0;
+  background-image:
+    linear-gradient(rgba(24, 33, 25, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 33, 25, 0.018) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.workspace-hero {
+  padding: clamp(8px, 2vw, 24px) 0 32px;
+}
+
+.task-card-premium,
+.insight-panel {
+  border: 1px solid rgba(24, 33, 25, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 2px rgba(18, 30, 22, 0.04), 0 10px 28px rgba(18, 30, 22, 0.065);
+}
+
+.task-card-premium {
+  transition: transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1), border-color 240ms ease, box-shadow 240ms ease;
+}
+
+.task-card-premium:hover {
+  transform: translateY(-3px);
+  border-color: rgba(15, 107, 80, 0.3);
+  box-shadow: 0 2px 5px rgba(18, 30, 22, 0.05), 0 20px 42px rgba(18, 30, 22, 0.1);
+}
+
+.workspace-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 2px 22px;
+  border-bottom: 1px solid rgba(24, 33, 25, 0.12);
+}
+
+.workspace-eyebrow {
+  color: #0f6b50;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workspace-title {
+  margin-top: 8px;
+  color: #182119;
+  font-size: clamp(26px, 3.5vw, 38px);
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.workspace-desc {
+  margin-top: 8px;
+  max-width: 680px;
+  color: #6f7b72;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.primary-action,
+.secondary-action {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 800;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.primary-action {
+  background: #0f6b50;
+  color: #fff;
+}
+
+.primary-action:hover {
+  background: #0b5340;
+}
+
+.secondary-action {
+  border: 1px solid #d2dad2;
+  background: #fff;
+  color: #0f6b50;
+}
+
+.secondary-action:hover {
+  border-color: #0f6b50;
+  background: #f0f6f2;
+}
+
+.resource-shelf > section {
+  border-color: rgba(24, 33, 25, 0.1);
+  box-shadow: 0 1px 2px rgba(18, 30, 22, 0.035), 0 8px 24px rgba(18, 30, 22, 0.055);
+}
+
+@media (max-width: 640px) {
+  .workspace-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+}
+
+/* 过程面板:保留可追溯感,但不再使用工程网格。 */
 .telemetry {
   background:
-    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)),
-    repeating-linear-gradient(0deg, transparent 0 22px, rgba(37, 99, 235, 0.06) 22px 23px);
+    radial-gradient(circle at 10% 0%, rgba(15, 107, 80, 0.08), transparent 15rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(251, 252, 250, 0.94));
 }
 
 .prose-spark {
@@ -107,17 +300,17 @@ body {
 }
 
 .prose-spark code {
-  background: #f1f5f9;
+  background: #f0f6f2;
   border: 1px solid var(--hairline);
   border-radius: 4px;
   padding: 0.08em 0.35em;
   font-size: 0.86em;
-  color: #1d4ed8;
+  color: #0b5340;
 }
 
 .prose-spark pre {
-  background: #111827;
-  border: 1px solid #1f2937;
+  background: #0e1411;
+  border: 1px solid #26312a;
   border-radius: 8px;
   padding: 0.85rem 1rem;
   overflow: auto;
@@ -128,16 +321,17 @@ body {
   background: none;
   border: 0;
   padding: 0;
-  color: #dbeafe;
+  color: #c7d2c9;
 }
 
+/* Phase A:引用块从橙改蓝——生成文档里的 blockquote 是"信息/注释",不是警示 */
 .prose-spark blockquote {
-  border-left: 3px solid var(--ember);
-  background: rgba(249, 115, 22, 0.08);
+  border-left: 3px solid var(--c-action);
+  background: rgba(15, 107, 80, 0.06);
   padding: 0.4rem 0.8rem;
   border-radius: 0 8px 8px 0;
   margin: 0.6em 0;
-  color: #7c2d12;
+  color: #0b5340;
 }
 
 .prose-spark table {
@@ -157,8 +351,9 @@ body {
   color: #0f172a;
 }
 
+/* Phase A:引文上标从橙改蓝——引用是信息,不是警示 */
 .prose-spark sup a {
-  color: var(--ember);
+  color: #0f6b50;
   text-decoration: none;
 }
 
@@ -167,6 +362,100 @@ body {
   color: var(--spark);
   animation: breathe 1s ease-in-out infinite;
   margin-left: 1px;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.36s ease-out both;
+}
+
+/* ============================================================
+   Phase D · 企业级状态与证据链样式
+   ============================================================ */
+
+/* 骨架屏:静底 + 微光扫过 */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #eef2f7;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* 引用锚点:点击正文 [^n] 芯片后,底部对应来源行短暂高亮 */
+.cite-anchor {
+  scroll-margin-top: 6.5rem;
+  border-radius: 6px;
+}
+
+.cite-anchor:target {
+  animation: citeflash 1.8s ease-out 1;
+}
+
+@keyframes citeflash {
+  0% {
+    background: rgba(37, 99, 235, 0.18);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* 键盘可达性:全站统一 focus 可见环(鼠标点击不出现) */
+:focus-visible {
+  outline: 2px solid var(--c-action);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Markmap 浅色主题:节点文字深色,连线保持配色,适配白底学习台 */
+.markmap-light .markmap-foreign {
+  color: #1f2937 !important;
+  font-size: 12.5px !important;
+}
+
+.markmap-light .markmap-foreign strong {
+  color: #0f172a !important;
+}
+
+.markmap-light .markmap-link {
+  opacity: 0.85;
 }
 
 @media (prefers-reduced-motion: reduce) {

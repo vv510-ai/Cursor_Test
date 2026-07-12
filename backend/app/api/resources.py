@@ -11,7 +11,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query
 
 from ..agents.graph import run_with_events
-from ..llm import seedance_client
+from ..llm import multimodal_gateway
 from ..models.db import session
 from ..models.entities import Resource
 from ..schemas.core import GenerateRequest
@@ -70,7 +70,7 @@ async def list_resources(user_id: str = Query("demo_user"),
 
 @router.get("/video/task/{task_id}")
 async def video_task(task_id: str):
-    return seedance_client.poll_task(task_id)
+    return await multimodal_gateway.video_poll(task_id)
 
 
 @router.get("/{rid}")

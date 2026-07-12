@@ -21,6 +21,7 @@ const config: Config = {
         breathe: "breathe 1.6s ease-in-out infinite",
         dash: "dash 1.2s linear infinite",
         rise: "rise .35s ease-out both",
+        slide: "slide 1.1s ease-in-out infinite",
       },
       keyframes: {
         breathe: { "0%,100%": { opacity: ".45" }, "50%": { opacity: "1" } },
@@ -28,6 +29,10 @@ const config: Config = {
         rise: {
           from: { opacity: "0", transform: "translateY(6px)" },
           to: { opacity: "1", transform: "none" },
+        },
+        slide: {
+          "0%": { transform: "translateX(-120%)" },
+          "100%": { transform: "translateX(320%)" },
         },
       },
     },

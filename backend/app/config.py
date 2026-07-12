@@ -11,6 +11,14 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 try:  # pydantic-settings 可用时走标准路径
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,6 +39,20 @@ try:  # pydantic-settings 可用时走标准路径
         ark_api_key: str = ""
         ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
         seedance_model: str = ""
+
+        # 多模态能力开关与单次调用预算
+        mm_ocr_enabled: bool = True
+        mm_tts_enabled: bool = True
+        mm_image_enabled: bool = True
+        mm_video_enabled: bool = True
+        mm_ocr_max_pages: int = 6
+        mm_ocr_tutor_timeout_s: float = 20
+        mm_ocr_ingest_timeout_s: float = 30
+        mm_tts_timeout_s: float = 15
+        mm_image_timeout_s: float = 30
+        mm_video_create_timeout_s: float = 15
+        mm_video_wait_budget_s: float = 45
+        mm_video_poll_timeout_s: float = 15
 
         # 存储
         database_url: str = ""
@@ -59,6 +81,18 @@ except Exception:  # pragma: no cover - 极端环境兜底(未安装 pydantic-se
             self.ark_api_key = g("ARK_API_KEY", "")
             self.ark_base_url = g("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
             self.seedance_model = g("SEEDANCE_MODEL", "")
+            self.mm_ocr_enabled = _env_bool("MM_OCR_ENABLED")
+            self.mm_tts_enabled = _env_bool("MM_TTS_ENABLED")
+            self.mm_image_enabled = _env_bool("MM_IMAGE_ENABLED")
+            self.mm_video_enabled = _env_bool("MM_VIDEO_ENABLED")
+            self.mm_ocr_max_pages = int(g("MM_OCR_MAX_PAGES", "6"))
+            self.mm_ocr_tutor_timeout_s = float(g("MM_OCR_TUTOR_TIMEOUT_S", "20"))
+            self.mm_ocr_ingest_timeout_s = float(g("MM_OCR_INGEST_TIMEOUT_S", "30"))
+            self.mm_tts_timeout_s = float(g("MM_TTS_TIMEOUT_S", "15"))
+            self.mm_image_timeout_s = float(g("MM_IMAGE_TIMEOUT_S", "30"))
+            self.mm_video_create_timeout_s = float(g("MM_VIDEO_CREATE_TIMEOUT_S", "15"))
+            self.mm_video_wait_budget_s = float(g("MM_VIDEO_WAIT_BUDGET_S", "45"))
+            self.mm_video_poll_timeout_s = float(g("MM_VIDEO_POLL_TIMEOUT_S", "15"))
             self.database_url = g("DATABASE_URL", "")
             self.milvus_uri = g("MILVUS_URI", "")
             self.redis_url = g("REDIS_URL", "")
