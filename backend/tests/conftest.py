@@ -4,8 +4,12 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _offline_multimodal_by_default(monkeypatch):
-    """Keep the default test suite offline even when the developer .env has keys."""
-    from app.llm import multimodal_gateway
+def _offline_by_default(monkeypatch):
+    """Keep pytest offline even when the developer .env contains real keys."""
+    from app import config
 
-    monkeypatch.setattr(multimodal_gateway, "is_demo", lambda: True)
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("EMBEDDING_BACKEND", "hash")
+    config.get_settings.cache_clear()
+    yield
+    config.get_settings.cache_clear()
