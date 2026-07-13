@@ -1,8 +1,8 @@
 # SparkLearn 前端(Next.js 14,standalone 产物)
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install --registry=https://registry.npmmirror.com
+COPY package.json package-lock.json ./
+RUN npm ci --registry=https://registry.npmmirror.com
 
 FROM node:20-alpine AS builder
 WORKDIR /app

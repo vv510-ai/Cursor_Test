@@ -7,8 +7,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -18,6 +20,28 @@ from . import seedance_client, spark_image, spark_ocr, spark_tts
 
 log = logging.getLogger("sparklearn.multimodal")
 MMResult = dict[str, Any]
+_MM_POOL_SIZE = 4
+_MM_POOL = ThreadPoolExecutor(max_workers=_MM_POOL_SIZE, thread_name_prefix="sparklearn-mm")
+_MM_SLOTS = threading.BoundedSemaphore(_MM_POOL_SIZE)
+
+
+class _MMPoolSaturated(RuntimeError):
+    pass
+
+
+async def _run_in_mm_pool(func: Callable[[], Any], timeout_s: float) -> Any:
+    if not _MM_SLOTS.acquire(blocking=False):
+        raise _MMPoolSaturated("multimodal worker pool saturated")
+
+    def wrapped() -> Any:
+        try:
+            return func()
+        finally:
+            _MM_SLOTS.release()
+
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(_MM_POOL, wrapped)
+    return await asyncio.wait_for(asyncio.shield(future), timeout=max(0.01, timeout_s))
 
 
 def _trace_id(value: str) -> str:
@@ -120,7 +144,7 @@ async def _run_sync(
         await _record(result, agent=agent)
         return result
     try:
-        raw = await asyncio.wait_for(asyncio.to_thread(func), timeout=max(0.01, timeout_s))
+        raw = await _run_in_mm_pool(func, timeout_s)
         data = normalize(raw)
         result = _result(capability, trace_id, started, ok=True, degraded=False, data=data)
     except TimeoutError:
@@ -163,7 +187,12 @@ async def ocr_image(
 
     return await _run_sync(
         "ocr",
-        lambda: spark_ocr.image_to_question(image_bytes, hint=hint),
+        lambda: spark_ocr.image_to_question(
+            image_bytes,
+            hint=hint,
+            max_tokens=4096 if purpose == "ingest" else 1024,
+            timeout_s=float(timeout_s),
+        ),
         normalize,
         enabled=bool(s.mm_ocr_enabled),
         configured=bool(_triplet_configured() or is_demo()),
@@ -216,7 +245,7 @@ async def tts(
 async def text_to_image(
     prompt: str,
     *,
-    width: int = 1024,
+    width: int = 768,
     height: int = 768,
     trace_id: str = "",
 ) -> MMResult:
@@ -299,9 +328,9 @@ async def video_wait(
         while time.monotonic() - started < budget:
             remaining = max(0.01, budget - (time.monotonic() - started))
             try:
-                state = await asyncio.wait_for(
-                    asyncio.to_thread(seedance_client.poll_task, task_id),
-                    timeout=min(float(s.mm_video_poll_timeout_s), remaining),
+                state = await _run_in_mm_pool(
+                    lambda: seedance_client.poll_task(task_id),
+                    min(float(s.mm_video_poll_timeout_s), remaining),
                 )
             except TimeoutError:
                 break

@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import uuid
 
+from ..config import GEN_DIR
 from ..llm import multimodal_gateway
 from ..llm.spark_client import llm_complete, parse_json
 from ..services.knowledge_graph import kp_name
@@ -26,6 +28,66 @@ _MANIM_PROMPT = (
     "请用 Manim Community v0.18 写一个 Python 场景类,可视化「{kp}」的核心过程"
     "(如指针移动/节点插入/递归展开),类名 {cls},≤60 行,只输出 Python 代码块。"
 )
+
+_LOCAL_MANIM_VIDEOS = {
+    "binary_tree": "manim_binary_tree_traversal.mp4",
+    "bst": "manim_bst_insertion.mp4",
+}
+
+
+def _strip_code_fence(code: str) -> str:
+    text = str(code or "").strip()
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def _valid_manim_code(code: str, cls: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != cls:
+            continue
+        inherits_scene = any(isinstance(base, ast.Name) and base.id == "Scene" for base in node.bases)
+        has_construct = any(isinstance(item, ast.FunctionDef) and item.name == "construct" for item in node.body)
+        return inherits_scene and has_construct
+    return False
+
+
+def _fallback_manim_code(cls: str, name: str) -> str:
+    return f'''from manim import *
+
+class {cls}(Scene):
+    def construct(self):
+        title = Text({name!r}, font_size=42, color=GREEN).to_edge(UP)
+        root = Circle(radius=0.42, color=GREEN).shift(UP * 0.6)
+        left = Circle(radius=0.42, color=BLUE).shift(LEFT * 2 + DOWN)
+        right = Circle(radius=0.42, color=ORANGE).shift(RIGHT * 2 + DOWN)
+        edges = VGroup(Line(root.get_bottom(), left.get_top()), Line(root.get_bottom(), right.get_top()))
+        labels = VGroup(Text("ROOT", font_size=20).move_to(root), Text("L", font_size=20).move_to(left), Text("R", font_size=20).move_to(right))
+        self.play(Write(title), Create(root), FadeIn(labels[0]))
+        self.play(Create(edges), Create(left), Create(right), FadeIn(labels[1:]))
+        self.wait(1)
+'''
+
+
+def _normalize_manim_code(code: str, cls: str, name: str) -> str:
+    cleaned = _strip_code_fence(code)
+    if _valid_manim_code(cleaned, cls):
+        return cleaned
+    return _fallback_manim_code(cls, name)
+
+
+def _local_manim_video(kp: str) -> dict | None:
+    filename = _LOCAL_MANIM_VIDEOS.get(kp)
+    if not filename or not (GEN_DIR / filename).is_file():
+        return None
+    return {"status": "succeeded", "url": f"/static/gen/{filename}"}
 
 
 async def run(state: dict) -> dict:
@@ -55,29 +117,39 @@ async def run(state: dict) -> dict:
                     "detail": p.get("detail", "视频生成中…"), "task_id": p.get("task_id")})
 
     mode = "manim"
-    created = await multimodal_gateway.video_create(
-        script.get("video_prompt", name), trace_id=trace_id,
-    )
-    if created["ok"]:
-        task_id = str(created["data"]["task_id"])
-        waited = await multimodal_gateway.video_wait(
-            task_id,
-            on_progress=on_progress,
-            trace_id=trace_id,
+    try:
+        created = await multimodal_gateway.video_create(
+            script.get("video_prompt", name), trace_id=trace_id,
         )
-        payload["video"] = waited["data"]
-        if waited["ok"]:
-            mode = "seedance"
-    elif created["data"]:
-        payload["video"] = created["data"]
+        if created["ok"]:
+            task_id = str(created["data"]["task_id"])
+            waited = await multimodal_gateway.video_wait(
+                task_id,
+                on_progress=on_progress,
+                trace_id=trace_id,
+            )
+            payload["video"] = waited["data"]
+            if waited["ok"]:
+                mode = "seedance"
+        elif created["data"]:
+            payload["video"] = created["data"]
+    except Exception:  # noqa: BLE001
+        payload["video"] = {"status": "degraded", "reason": "视频服务异常,已切换为脚本讲解"}
+        await emit({"type": "progress", "agent": "media", "stage": "video", "percent": 40,
+                    "detail": "视频服务异常,已安全切换为脚本与动画代码"})
 
     if mode == "manim":                                            # 降级链路
         cls = "Scene" + kp.title().replace("_", "")
         code = await llm_complete(_MANIM_PROMPT.format(kp=name, cls=cls),
                                   role="ultra", temperature=0.3, max_tokens=1400)
-        payload["manim_code"] = code
+        payload["manim_code"] = _normalize_manim_code(code, cls, name)
+        local_video = _local_manim_video(kp)
+        if local_video:
+            payload["video"] = local_video
+            mode = "local_manim"
         await emit({"type": "progress", "agent": "media", "stage": "manim", "percent": 70,
-                    "detail": "Seedance 未配置/失败,已降级为 Manim 动画代码(可本地渲染)"})
+                    "detail": "Seedance 未配置/失败,已使用预渲染 Manim 教学动画"
+                    if local_video else "Seedance 未配置/失败,已降级为 Manim 动画代码(可本地渲染)"})
 
     audio, cover = await asyncio.gather(
         multimodal_gateway.tts(script["narration"][:260], trace_id=trace_id),
@@ -85,21 +157,28 @@ async def run(state: dict) -> dict:
             f"数据结构教学插画:{name},蓝橙科技风,简洁示意图",
             trace_id=trace_id,
         ),
+        return_exceptions=True,
     )
-    if audio["ok"]:
+    if isinstance(audio, dict) and audio.get("ok"):
         payload["audio_url"] = audio["data"]["audio_url"]
-    if cover["ok"]:
+    if isinstance(cover, dict) and cover.get("ok"):
         payload["cover_url"] = cover["data"]["image_url"]
     await emit({"type": "progress", "agent": "media", "stage": "post", "percent": 100,
                 "detail": "旁白与封面处理完成"
-                if audio["ok"] or cover["ok"] else "旁白与封面不可用,已保留讲解脚本"})
+                if (isinstance(audio, dict) and audio.get("ok"))
+                or (isinstance(cover, dict) and cover.get("ok"))
+                else "旁白与封面不可用,已保留讲解脚本"})
 
     rid = uuid.uuid4().hex[:12]
     resource = {"id": rid, "kind": "video", "kp": kp,
                 "title": script.get("title", f"{name}·讲解视频"),
                 "payload": payload, "citations": []}
     await emit({"type": "resource", "resource": resource})
-    await agent_end("media", "Seedance 视频任务已提交" if mode == "seedance"
-                    else "已产出 Manim 动画代码 + 旁白脚本(降级模式)", {"id": rid, "mode": mode})
+    summaries = {
+        "seedance": "Seedance 视频任务已提交",
+        "local_manim": "已产出预渲染 Manim 教学动画 + 旁白脚本",
+        "manim": "已产出 Manim 动画代码 + 旁白脚本(降级模式)",
+    }
+    await agent_end("media", summaries[mode], {"id": rid, "mode": mode})
     return {"generated_resources": {rid: resource},
             "progress_events": [{"agent": "media", "mode": mode}]}

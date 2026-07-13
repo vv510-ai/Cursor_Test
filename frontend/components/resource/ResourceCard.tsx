@@ -8,6 +8,7 @@ import type { PathPlan, ResourceItem } from "@/lib/types";
 import Markmap from "./Markmap";
 import QuizPlayer from "./QuizPlayer";
 import VideoBlock from "./VideoBlock";
+import { apiAssetUrl } from "@/lib/api";
 
 const KIND_META: Record<
   string,
@@ -91,6 +92,8 @@ export default function ResourceCard({
   const grounded = r.payload?.grounded;
   const issue = resourceIssue(r);
   const payload = r.payload || {};
+  const audioUrl = apiAssetUrl(payload.audio_url);
+  const coverUrl = apiAssetUrl(payload.cover_url);
   const isText = TEXT_KINDS.has(r.kind);
   const created = r.created_at ? r.created_at.replace("T", " ").slice(0, 16) : "";
   const preview = resourcePreview(r);
@@ -146,12 +149,12 @@ export default function ResourceCard({
                 <p className="mt-1 text-xs leading-5 text-[#57635A]">
                   {payload.audio_url ? "先听一遍重点，再结合正文和脚注深入学习。" : "用一张图先建立知识点的整体印象。"}
                 </p>
-                {payload.audio_url && <audio src={payload.audio_url} controls className="mt-2 h-9 w-full" />}
+                {audioUrl && <audio src={audioUrl} controls className="mt-2 h-9 w-full" />}
               </div>
-              {payload.cover_url && (
+              {coverUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={payload.cover_url}
+                  src={coverUrl}
                   alt={`${r.title}封面`}
                   className="h-20 w-full rounded-[10px] border border-[#D2DAD2] object-cover sm:w-28"
                 />

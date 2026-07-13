@@ -1,12 +1,24 @@
 "use client";
 
 import Image from "next/image";
+import {
+  ArrowRight,
+  BookOpen,
+  BrainCircuit,
+  ChartNoAxesColumn,
+  FolderOpen,
+  GraduationCap,
+  Route,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import AgentTrace, { applyTraceEvent, emptyTrace, type TraceState } from "@/components/agent/AgentTrace";
 import Chat from "@/components/chat/Chat";
 import PathDag from "@/components/path/PathDag";
 import ProfileRadar from "@/components/profile/ProfileRadar";
 import ResourceCard from "@/components/resource/ResourceCard";
+import CinematicBackground from "@/components/ui/CinematicBackground";
 import { useView, type ViewKey } from "@/components/view/ViewContext";
 import { apiGet, apiUpload, USER_ID } from "@/lib/api";
 import type { PathPlan, ResourceItem, SparkEvent, StudentProfile } from "@/lib/types";
@@ -26,6 +38,7 @@ type QuickEntry = {
 };
 type ChatRequest = { path: string; body: Record<string, unknown>; display: string };
 type EvalReportSummary = { path?: PathPlan; profile_version?: number };
+type FlowStatus = "idle" | "running" | "done" | "error";
 type UploadResult = {
   source: { id: string; title: string; source_type: string; chunk_count: number };
   sample?: { text: string; citation: string }[];
@@ -86,6 +99,31 @@ const ROLE_PROFILE: Record<
   },
 };
 
+const ROLE_FLOW: Record<ViewKey, { eyebrow: string; result: string; steps: [string, string, string, string] }> = {
+  student: {
+    eyebrow: "从一个问题，到真正会做",
+    result: "讲解、练习与下一步彼此衔接",
+    steps: ["说出目标", "讲清概念", "针对练习", "调整路线"],
+  },
+  teacher: {
+    eyebrow: "从教学目标，到一套可用内容",
+    result: "备课内容与班级易错点放在一起",
+    steps: ["确定目标", "整理讲义", "生成练习", "汇总易错"],
+  },
+  judge: {
+    eyebrow: "从学习结果，到可追溯依据",
+    result: "效果、来源与风险保持同一口径",
+    steps: ["查看效果", "追溯来源", "识别风险", "检查覆盖"],
+  },
+};
+
+const TRACE_FLOW: { label: string; ids: string[] }[] = [
+  { label: "理解目标", ids: ["profile", "orchestrator"] },
+  { label: "规划路线", ids: ["planner", "path"] },
+  { label: "整理内容", ids: ["doc", "mindmap", "quiz", "media", "tutor"] },
+  { label: "检查结果", ids: ["eval"] },
+];
+
 const TASKS: Record<
   TaskKey,
   {
@@ -114,6 +152,12 @@ const TASKS: Record<
     seed: "请根据我的掌握度安排本周数据结构学习顺序，优先攻克二叉树并衔接到二叉搜索树。",
   },
 };
+
+const TASK_ICONS = {
+  full: BookOpen,
+  quiz: GraduationCap,
+  path: Route,
+} satisfies Record<TaskKey, typeof BookOpen>;
 
 const QUICK_ENTRIES: QuickEntry[] = [
   {
@@ -144,108 +188,160 @@ const QUICK_ENTRIES: QuickEntry[] = [
   },
 ];
 
-function SparkMark({ running = false }: { running?: boolean }) {
+function SparkMark({ running = false, light = false }: { running?: boolean; light?: boolean }) {
   return (
     <span className={`inline-grid h-6 w-6 place-items-center ${running ? "animate-pulse" : ""}`} aria-hidden>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
           d="M12 1.8c.9 4.8 4.6 8.5 9.4 9.4-4.8.9-8.5 4.6-9.4 9.4-.9-4.8-4.6-8.5-9.4-9.4 4.8-.9 8.5-4.6 9.4-9.4z"
-          fill={running ? "#C2410C" : "#0F6B50"}
+          fill={running ? "#F4A261" : light ? "#E7FFF2" : "#0F6B50"}
         />
       </svg>
     </span>
   );
 }
 
-function RoleAvatar({ role, size = "large" }: { role: ViewKey; size?: "small" | "large" }) {
+function RoleAvatar({ role, size = "large" }: { role: ViewKey; size?: "small" | "medium" | "large" }) {
   const meta = ROLE_PROFILE[role];
-  const cls = size === "small" ? "h-8 w-8 rounded-full" : "h-[176px] w-full rounded-[14px]";
+  const cls =
+    size === "small"
+      ? "h-8 w-8 rounded-full"
+      : size === "medium"
+        ? "h-20 w-20 rounded-[18px]"
+        : "h-[176px] w-full rounded-[14px]";
   return (
     <span className={`relative block overflow-hidden border border-black/[0.06] bg-[#EEF1EC] ${cls}`}>
       <Image
         src={meta.image}
         alt={`${meta.name}角色形象`}
         fill
-        sizes={size === "small" ? "32px" : "(max-width: 1024px) 100vw, 360px"}
-        className={size === "small" ? "object-cover object-top" : "object-cover object-[center_24%] transition duration-500 group-hover:scale-[1.025]"}
+        sizes={size === "small" ? "32px" : size === "medium" ? "80px" : "(max-width: 1024px) 100vw, 360px"}
+        className={size === "large" ? "object-cover object-[center_24%] transition duration-500 group-hover:scale-[1.025]" : "object-cover object-top"}
         priority={role === "student"}
       />
     </span>
   );
 }
 
-function RoleGate({ onEnter }: { onEnter: (role: ViewKey) => void }) {
+function RoleLearningFlow({ role }: { role: ViewKey }) {
+  const flow = ROLE_FLOW[role];
   return (
-    <main className="role-gate-shell min-h-dvh overflow-y-auto text-[#182119]">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[1180px] flex-col px-5 py-7 sm:px-8 lg:px-10">
-        <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <SparkMark />
-            <div className="text-[17px] font-black tracking-tight">
-              SparkLearn <span className="ml-2 text-sm font-semibold text-[#57635A]">星火学伴 · 智能学习机</span>
+    <div key={role} className="learning-ribbon animate-flow-swap" aria-live="polite">
+      <div className="learning-ribbon-copy">
+        <span>{flow.eyebrow}</span>
+        <strong>{flow.result}</strong>
+      </div>
+      <div className="learning-ribbon-steps" aria-label={`${ROLE_PROFILE[role].name}使用流程`}>
+        {flow.steps.map((step, index) => (
+          <div key={step} className="learning-ribbon-step">
+            <span className="learning-ribbon-node">{index + 1}</span>
+            <span>{step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function traceStageStatus(trace: TraceState, ids: string[]): FlowStatus {
+  const nodes = ids.map((id) => trace[id]).filter(Boolean);
+  if (nodes.some((node) => node.status === "error")) return "error";
+  if (nodes.some((node) => node.status === "running")) return "running";
+  if (nodes.some((node) => node.status === "done")) return "done";
+  return "idle";
+}
+
+function WorkflowRail({ trace }: { trace: TraceState }) {
+  const stages = TRACE_FLOW.map((stage) => ({ ...stage, status: traceStageStatus(trace, stage.ids) }));
+  const hasError = stages.some((stage) => stage.status === "error");
+  const isRunning = stages.some((stage) => stage.status === "running");
+  const isDone = stages.some((stage) => stage.status === "done") && !isRunning;
+  const stateLabel = hasError ? "部分内容需要重试" : isRunning ? "星火正在整理" : isDone ? "本轮已经整理好" : "准备就绪";
+
+  return (
+    <div className="workflow-rail" aria-label="学习任务处理进度" aria-live="polite">
+      <div className="workflow-rail-state">
+        <span className={`workflow-live-dot ${isRunning ? "is-running" : isDone ? "is-done" : hasError ? "is-error" : ""}`} />
+        <span>{stateLabel}</span>
+      </div>
+      <div className="workflow-rail-steps">
+        {stages.map((stage, index) => (
+          <div key={stage.label} className={`workflow-stage is-${stage.status}`}>
+            <span className="workflow-stage-node">{stage.status === "done" ? "✓" : index + 1}</span>
+            <span>{stage.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoleGate({ onEnter }: { onEnter: (role: ViewKey, goal?: string) => void }) {
+  const [previewRole, setPreviewRole] = useState<ViewKey>("student");
+  return (
+    <main className="role-gate-shell relative min-h-dvh overflow-hidden text-white">
+      <CinematicBackground />
+      <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-4 py-5 sm:px-8 sm:py-6">
+        <nav className="liquid-glass glass-readable flex items-center justify-between rounded-full px-5 py-3 sm:px-6">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-2.5">
+              <SparkMark light />
+              <span className="text-xl text-white" style={{ fontFamily: "var(--font-display)" }}>SparkLearn<sup className="ml-0.5 text-[9px]">®</sup></span>
+            </div>
+            <div className="hidden items-center gap-6 text-sm font-medium text-white/70 md:flex">
+              <a href="#roles" className="text-white transition-colors">首页</a>
+              <a href="#roles" className="transition-colors hover:text-white">学习方式</a>
+              <a href="#roles" className="transition-colors hover:text-white">个性路线</a>
+              <a href="#roles" className="transition-colors hover:text-white">依据溯源</a>
             </div>
           </div>
-          <span className="hidden rounded-full border border-[#D2DAD2] bg-white px-4 py-1.5 text-xs font-semibold text-[#57635A] sm:inline">
-            讯飞星火驱动 · 随身学习助理
-          </span>
-        </header>
+          <button onClick={() => onEnter("student")} className="liquid-glass flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-white transition-transform hover:scale-[1.03]">
+            开始学习 <ArrowRight size={16} />
+          </button>
+        </nav>
 
-        <section className="mb-10 mt-12 max-w-[780px] lg:mt-14">
-          <p className="mb-4 text-xs font-black text-[#0F6B50]">讯飞星火驱动的智能学习机</p>
-          <h1 className="text-[clamp(36px,5vw,58px)] font-black leading-[1.08]">
-            SparkLearn，<span className="text-[#0F6B50]">学习的左膀右臂。</span>
+        <section className="cinematic-copy relative z-10 flex flex-1 flex-col items-center justify-center px-4 py-[72px] text-center lg:-translate-y-[5%]">
+          <h1
+            className="animate-fade-rise max-w-6xl text-[44px] font-normal leading-[0.98] text-white sm:text-7xl md:text-8xl"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            <span className="block">SparkLearn，</span>
+            <em className="mt-1 block whitespace-nowrap text-[38px] not-italic text-white/70 sm:text-7xl md:text-8xl">学习的左膀右臂。</em>
           </h1>
-          <p className="mt-5 max-w-[680px] text-base leading-8 text-[#57635A] sm:text-lg">
-            说出目标，讲解、导图、练习与学习路线随即展开。重要结论都有出处，学习进展持续更新。
+          <p className="animate-fade-rise-delay mt-8 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
+            面向学生、老师与教研人员的智能学习平台。把讲解、练习、学习路线与可追溯依据，整理成真正能继续行动的一页。
           </p>
+          <RoleLearningFlow role={previewRole} />
+          <button onClick={() => onEnter(previewRole)} className="liquid-glass animate-fade-rise-delay-2 mt-7 flex cursor-pointer items-center gap-3 rounded-full px-12 py-4 text-base font-medium text-white transition-transform hover:scale-[1.03]">
+            选择身份进入 <ArrowRight size={18} />
+          </button>
         </section>
 
-        <section className="mb-4 flex items-center gap-3 text-sm font-semibold text-[#8B958D]">
-          <span>选择身份进入</span>
-          <span className="h-px flex-1 bg-[#D2DAD2]" />
-          <span className="hidden sm:inline">进入后只看和自己有关的任务</span>
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section id="roles" className="grid gap-3 pb-2 md:grid-cols-3">
           {ROLE_ORDER.map((role) => {
             const item = ROLE_PROFILE[role];
             return (
               <button
                 key={role}
                 onClick={() => onEnter(role)}
-                className="role-card-premium group flex min-h-[410px] flex-col p-3 text-left"
+                onMouseEnter={() => setPreviewRole(role)}
+                onFocus={() => setPreviewRole(role)}
+                aria-pressed={previewRole === role}
+                className={`liquid-glass glass-readable group flex min-h-[88px] items-center gap-3 rounded-[16px] p-3 text-left transition-transform hover:-translate-y-1 ${previewRole === role ? "role-entry-active" : ""}`}
               >
-                <RoleAvatar role={role} />
-                <div className="mt-5 flex items-baseline gap-2 px-3">
-                  <span className="text-xl font-black">{item.name}</span>
-                  <span className="text-sm text-[#8B958D]">{item.who}</span>
-                </div>
-                <p className="mt-2 min-h-12 px-3 text-sm leading-7 text-[#57635A]">{item.line}</p>
-                <div className="mt-3 space-y-2 px-3">
-                  {item.tasks.map((task) => (
-                    <div key={task} className="flex gap-3 text-sm leading-6 text-[#57635A]">
-                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: item.accent }} />
-                      <span>{task}</span>
-                    </div>
-                  ))}
-                </div>
-                <span className="mt-auto inline-flex items-center gap-2 px-3 pb-2 pt-5 text-sm font-black" style={{ color: item.accent }}>
-                  以{item.name}身份进入 <span className="transition group-hover:translate-x-1">→</span>
+                <RoleAvatar role={role} size="small" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-base font-black text-white">{item.name}</span>
+                    <span className="truncate text-xs text-white/50">{item.who}</span>
+                  </span>
+                  <span className="mt-1 block truncate text-xs leading-5 text-white/70">{item.line}</span>
                 </span>
+                <ArrowRight size={16} className="shrink-0 text-white/50 transition group-hover:translate-x-1 group-hover:text-white" />
               </button>
             );
           })}
         </section>
-
-        <footer className="mt-auto flex flex-wrap gap-3 pt-10 text-xs text-[#8B958D]">
-          <span>讲解有出处</span>
-          <span>·</span>
-          <span>练习会更新掌握情况</span>
-          <span>·</span>
-          <span>路线随掌握度调整</span>
-          <span>·</span>
-          <span>每一步都能查依据</span>
-        </footer>
       </div>
     </main>
   );
@@ -285,9 +381,15 @@ export default function Home() {
     return resources.filter((item) => item.kind === resourceFilter);
   }, [resourceFilter, resources]);
 
-  const enter = (role: ViewKey) => {
+  const enter = (role: ViewKey, goal?: string) => {
     setView(role);
     setEntered(true);
+    if (goal) {
+      setActivePanel("chat");
+      setSeed(goal);
+      setRequest(undefined);
+      setChatStarted(true);
+    }
   };
 
   const leave = () => {
@@ -463,19 +565,20 @@ export default function Home() {
   if (!entered) return <RoleGate onEnter={enter} />;
 
   return (
-    <main className="app-shell flex h-dvh flex-col overflow-hidden text-[#182119]">
-      <header className="topbar-premium flex h-16 shrink-0 items-center gap-4 px-4 sm:px-5">
+    <main className="app-shell cinematic-theme relative flex h-dvh flex-col overflow-hidden text-[#182119]">
+      <CinematicBackground subdued={!showHome || evidenceOpen} />
+      <header className="topbar-premium relative z-20 flex h-16 shrink-0 items-center gap-4 px-4 text-white sm:px-5">
         <button onClick={goHome} className="flex items-center gap-3 text-left" title="返回学习台首页">
-          <SparkMark running={running} />
+          <SparkMark running={running} light />
           <div className="text-lg font-black tracking-tight">SparkLearn</div>
-          <div className="hidden border-l border-[#E5E9E3] pl-4 text-sm font-semibold text-[#8B958D] md:block">
+          <div className="hidden border-l border-white/20 pl-4 text-sm font-semibold text-white/60 md:block">
             星火学伴 · 学习的左膀右臂
           </div>
         </button>
 
         <div className="ml-auto flex items-center gap-3">
           <span
-            className={`rounded-full border px-3 py-1.5 text-sm font-black ${
+            className={`hidden rounded-full border px-3 py-1.5 text-sm font-black sm:inline-flex ${
               running
                 ? "border-[#EED4C2] bg-[#FBEAE0] text-[#C2410C]"
                 : finished
@@ -502,16 +605,16 @@ export default function Home() {
 
           <button
             onClick={() => setEvidenceOpen((v) => !v)}
-            className="rounded-full bg-[#0E1411] px-4 py-2 text-sm font-black text-[#C7D2C9] transition hover:bg-[#151D18]"
+            className="liquid-glass glass-readable flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black text-white transition hover:bg-white/[0.08]"
           >
-            <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#7ED9A6]" />
-            依据 {evidenceOpen ? "收起" : "展开"}
+            <ShieldCheck size={16} />
+            <span className="hidden sm:inline">依据 {evidenceOpen ? "收起" : "展开"}</span>
           </button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="sidebar-premium hidden w-[296px] shrink-0 lg:flex lg:flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1">
+        <aside className="sidebar-premium relative z-10 hidden w-[296px] shrink-0 lg:flex lg:flex-col">
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-5 py-6">
             <section>
               <h2 className="mb-3 text-xs font-black text-[#8B958D]">说一句话开始</h2>
@@ -530,7 +633,7 @@ export default function Home() {
                   className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#0F6B50] text-xl font-black text-white transition hover:bg-[#0B5340]"
                   aria-label="开始"
                 >
-                  →
+                  <ArrowRight size={18} />
                 </button>
               </div>
             </section>
@@ -538,23 +641,24 @@ export default function Home() {
             <section>
               <h2 className="mb-3 text-xs font-black text-[#8B958D]">今天先处理这三件事</h2>
               <div className="space-y-3">
-                {(Object.entries(TASKS) as [TaskKey, (typeof TASKS)[TaskKey]][]).map(([key, task], index) => (
-                  <button
+                {(Object.entries(TASKS) as [TaskKey, (typeof TASKS)[TaskKey]][]).map(([key, task]) => {
+                  const TaskIcon = TASK_ICONS[key];
+                  return <button
                     key={key}
                     onClick={() => startTask(key)}
                     className={`flex w-full gap-3 rounded-[14px] border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
                       activeTask === key ? "border-[#0F6B50] bg-[#F0F6F2]" : "border-[#E5E9E3]"
                     }`}
                   >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[#E3F0E9] font-mono text-sm font-black text-[#0F6B50]">
-                      {index + 1}
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[#E3F0E9] text-[#0F6B50]">
+                      <TaskIcon size={15} />
                     </span>
                     <span>
                       <span className="block text-sm font-black leading-6">{task.title}</span>
                       <span className="mt-1 block text-sm leading-6 text-[#8B958D]">{task.sub}</span>
                     </span>
-                  </button>
-                ))}
+                  </button>;
+                })}
               </div>
             </section>
 
@@ -569,9 +673,9 @@ export default function Home() {
               </div>
               <button
                 onClick={() => void loadResources()}
-                className="mt-3 w-full rounded-[12px] border border-[#E5E9E3] bg-white px-3 py-2.5 text-left text-sm font-black text-[#0F6B50] transition hover:border-[#0F6B50] hover:bg-[#F0F6F2]"
+                className="mt-3 flex w-full items-center gap-2 rounded-[12px] border border-[#E5E9E3] bg-white px-3 py-2.5 text-left text-sm font-black text-[#0F6B50] transition hover:border-[#0F6B50] hover:bg-[#F0F6F2]"
               >
-                查看最近整理的资料 →
+                <FolderOpen size={16} /> 查看最近整理的资料 <ArrowRight size={14} className="ml-auto" />
               </button>
               <input
                 ref={sourceInputRef}
@@ -587,9 +691,9 @@ export default function Home() {
               <button
                 onClick={() => sourceInputRef.current?.click()}
                 disabled={uploading}
-                className="mt-2 w-full rounded-[12px] border border-[#E5E9E3] bg-white px-3 py-2.5 text-left text-sm font-black text-[#0F6B50] transition hover:border-[#0F6B50] hover:bg-[#F0F6F2] disabled:cursor-wait disabled:opacity-60"
+                className="mt-2 flex w-full items-center gap-2 rounded-[12px] border border-[#E5E9E3] bg-white px-3 py-2.5 text-left text-sm font-black text-[#0F6B50] transition hover:border-[#0F6B50] hover:bg-[#F0F6F2] disabled:cursor-wait disabled:opacity-60"
               >
-                {uploading ? "正在读取资料…" : "上传讲义或照片 →"}
+                <Upload size={16} /> {uploading ? "正在读取资料…" : "上传讲义或照片"} <ArrowRight size={14} className="ml-auto" />
               </button>
               {uploadNote && (
                 <p className={`mt-2 text-xs leading-5 ${uploadError ? "text-[#C2410C]" : "text-[#0F6B50]"}`}>
@@ -607,22 +711,25 @@ export default function Home() {
               <h2 className="mb-3 text-xs font-black text-[#8B958D]">快捷入口</h2>
               <div className="space-y-2">
                 {QUICK_ENTRIES.map((entry, index) => (
-                  <button
-                    key={entry.title}
-                    onClick={() => runQuick(entry)}
-                    className={`group flex w-full items-start gap-3 rounded-[13px] border px-3 py-3 text-left transition hover:border-[#E5E9E3] hover:bg-white hover:shadow-sm ${
-                      activePanel === entry.panel ? "border-[#0F6B50] bg-white shadow-sm" : "border-transparent"
-                    }`}
-                  >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[#E3F0E9] font-mono text-xs font-black text-[#0F6B50]">
-                      {index + 1}
+                  (() => {
+                    const QuickIcon = [ChartNoAxesColumn, BrainCircuit, GraduationCap, Route][index];
+                    return <button
+                      key={entry.title}
+                      onClick={() => runQuick(entry)}
+                      className={`group flex w-full items-start gap-3 rounded-[13px] border bg-white px-3 py-3 text-left transition hover:border-[#BFD0C5] hover:shadow-sm ${
+                        activePanel === entry.panel ? "border-[#0F6B50] shadow-sm" : "border-[#E5E9E3]"
+                      }`}
+                    >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[#E3F0E9] text-[#0F6B50]">
+                      <QuickIcon size={15} />
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-black leading-5 text-[#182119]">{entry.title}</span>
                       <span className="mt-1 block text-xs leading-5 text-[#8B958D]">{entry.desc}</span>
                     </span>
                     <span className="ml-auto pt-0.5 text-[#8B958D] transition group-hover:translate-x-0.5 group-hover:text-[#0F6B50]">→</span>
-                  </button>
+                    </button>;
+                  })()
                 ))}
               </div>
             </section>
@@ -643,14 +750,14 @@ export default function Home() {
 
             {showHome && (
               <section className="workspace-hero animate-rise">
-                <div className="mb-5 flex items-center gap-3 text-sm font-black text-[#6F7B72]">
-                  <SparkMark />
+                <div className="mb-5 flex items-center gap-3 text-sm font-black text-white/70">
+                  <SparkMark light />
                   <span>{roleMeta.name}视角 · 今天从一件事开始</span>
                 </div>
-                <h1 className="max-w-[760px] text-[clamp(34px,5vw,54px)] font-black leading-[1.1]">
-                  SparkLearn，<span className="text-[#0F6B50]">学习的左膀右臂。</span>
+                <h1 className="cinematic-copy max-w-[980px] text-[clamp(38px,4.3vw,54px)] leading-[1.06] text-white sm:whitespace-nowrap" style={{ fontFamily: "var(--font-display)" }}>
+                  SparkLearn，学习的左膀右臂。
                 </h1>
-                <p className="mt-4 max-w-[720px] text-base leading-8 text-[#57635A] sm:text-lg">
+                <p className="cinematic-copy mt-4 max-w-[720px] text-base leading-8 text-white/75 sm:text-lg">
                   {roleMeta.name === "学生"
                     ? "讲解、练习与学习路线围绕同一个目标展开。你看结论，也随时能查看出处。"
                     : roleMeta.name === "老师"
@@ -658,24 +765,26 @@ export default function Home() {
                       : "学习效果先呈现，来源、风险与处理过程按需展开。"}
                 </p>
 
-                <div className="mt-9 grid gap-4 md:grid-cols-3">
-                  {(Object.entries(TASKS) as [TaskKey, (typeof TASKS)[TaskKey]][]).map(([key, task], index) => (
-                    <button key={key} onClick={() => startTask(key)} className="task-card-premium group min-h-[172px] p-5 text-left">
-                      <div className="flex items-center justify-between">
-                        <span className="grid h-8 w-8 place-items-center rounded-[9px] bg-[#E3F0E9] font-mono text-xs font-black text-[#0F6B50]">0{index + 1}</span>
-                        <span className="text-[#A2AAA3] transition group-hover:translate-x-1 group-hover:text-[#0F6B50]">→</span>
-                      </div>
-                      <div className="mt-5 text-lg font-black leading-7">{task.title}</div>
-                      <div className="mt-2 text-sm leading-6 text-[#6F7B72]">{task.sub}</div>
-                    </button>
-                  ))}
+                <div className="liquid-glass glass-readable mt-7 flex max-w-[680px] items-center gap-3 rounded-full py-2 pl-5 pr-2">
+                  <BrainCircuit size={20} className="shrink-0 text-white/60" />
+                  <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && ask()} placeholder="说出学习目标，例如：树的高度怎么算？" className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/50 sm:text-base" />
+                  <button onClick={ask} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#042435] transition hover:scale-[1.04]" aria-label="开始提问"><ArrowRight size={20} /></button>
                 </div>
 
-                <div className="mt-7 rounded-[14px] border border-[#D8DED7] bg-white/75 p-3 lg:hidden">
-                  <div className="flex gap-2">
-                    <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && ask()} placeholder="也可以直接问一个问题" className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
-                    <button onClick={ask} className="grid h-10 w-10 place-items-center rounded-[10px] bg-[#0F6B50] text-lg font-black text-white" aria-label="开始提问">→</button>
-                  </div>
+                <WorkflowRail trace={trace} />
+
+                <div className="mt-9 grid gap-4 md:grid-cols-3">
+                  {(Object.entries(TASKS) as [TaskKey, (typeof TASKS)[TaskKey]][]).map(([key, task]) => {
+                    const TaskIcon = TASK_ICONS[key];
+                    return <button key={key} onClick={() => startTask(key)} className="liquid-glass glass-readable task-card-premium group min-h-[172px] p-5 text-left text-white">
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-[#F6D98D]"><TaskIcon size={18} /></span>
+                        <ArrowRight size={18} className="text-white/50 transition group-hover:translate-x-1 group-hover:text-white" />
+                      </div>
+                      <div className="mt-5 text-lg font-black leading-7">{task.title}</div>
+                      <div className="mt-2 text-sm leading-6 text-white/70">{task.sub}</div>
+                    </button>;
+                  })}
                 </div>
               </section>
             )}
@@ -778,15 +887,15 @@ export default function Home() {
       </div>
 
       <section
-        className={`fixed inset-x-0 bottom-0 z-30 border-t border-[#26312A] bg-[#0E1411] text-[#C7D2C9] shadow-[0_-24px_80px_rgba(14,20,17,0.30)] transition-transform duration-300 ${
+        className={`fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#032838]/[0.97] text-[#DCE9EF] shadow-[0_-20px_60px_rgba(0,24,36,0.24)] backdrop-blur-xl transition-transform duration-300 ${
           evidenceOpen ? "translate-y-0" : "translate-y-[calc(100%-56px)]"
         }`}
       >
         <button onClick={() => setEvidenceOpen((v) => !v)} className="flex h-14 w-full items-center justify-between px-6 text-left">
           <span>
-            <span className="mr-3 inline-block h-2 w-2 rounded-full bg-[#7ED9A6]" />
-            <span className="font-black text-[#E5EFE8]">依据与过程</span>
-            <span className="ml-3 text-sm text-[#8DA18F]">资料来源、处理过程和每一步依据都在这里</span>
+            <ShieldCheck size={16} className="mr-3 inline-block text-[#7ED9A6]" />
+            <span className="font-black text-white">依据与过程</span>
+            <span className="ml-3 hidden text-sm text-[#B9D2C2] md:inline">资料来源、处理过程和每一步依据都在这里</span>
           </span>
           <span className="text-sm font-black text-[#8DA18F]">{evidenceOpen ? "收起" : "展开"}</span>
         </button>

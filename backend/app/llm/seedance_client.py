@@ -34,7 +34,7 @@ def create_task(prompt: str, image_url: str | None = None) -> str:
         f"{s.ark_base_url}/contents/generations/tasks",
         headers=headers,
         json={"model": s.seedance_model, "content": content},
-        timeout=60,
+        timeout=max(1.0, float(getattr(s, "mm_video_create_timeout_s", 15))),
     )
     r.raise_for_status()
     return r.json()["id"]
@@ -48,7 +48,8 @@ def poll_task(task_id: str) -> dict:
     s = get_settings()
     headers = {"Authorization": f"Bearer {s.ark_api_key}"}
     r = requests.get(f"{s.ark_base_url}/contents/generations/tasks/{task_id}",
-                     headers=headers, timeout=30)
+                     headers=headers,
+                     timeout=max(1.0, float(getattr(s, "mm_video_poll_timeout_s", 15))))
     r.raise_for_status()
     data = r.json()
     out = {"status": data.get("status", "running"), "task_id": task_id}

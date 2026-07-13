@@ -34,6 +34,7 @@ try:  # pydantic-settings 可用时走标准路径
         spark_appid: str = ""
         spark_api_key: str = ""
         spark_api_secret: str = ""
+        spark_image_domain: str = "general"
 
         # 火山方舟 Seedance
         ark_api_key: str = ""
@@ -42,12 +43,14 @@ try:  # pydantic-settings 可用时走标准路径
 
         # 多模态能力开关与单次调用预算
         mm_ocr_enabled: bool = True
+        mm_local_ocr_enabled: bool = True
         mm_tts_enabled: bool = True
         mm_image_enabled: bool = True
         mm_video_enabled: bool = True
         mm_ocr_max_pages: int = 6
         mm_ocr_tutor_timeout_s: float = 20
         mm_ocr_ingest_timeout_s: float = 30
+        mm_local_ocr_timeout_s: float = 20
         mm_tts_timeout_s: float = 15
         mm_image_timeout_s: float = 30
         mm_video_create_timeout_s: float = 15
@@ -78,16 +81,19 @@ except Exception:  # pragma: no cover - 极端环境兜底(未安装 pydantic-se
             self.spark_appid = g("SPARK_APPID", "")
             self.spark_api_key = g("SPARK_API_KEY", "")
             self.spark_api_secret = g("SPARK_API_SECRET", "")
+            self.spark_image_domain = g("SPARK_IMAGE_DOMAIN", "general")
             self.ark_api_key = g("ARK_API_KEY", "")
             self.ark_base_url = g("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
             self.seedance_model = g("SEEDANCE_MODEL", "")
             self.mm_ocr_enabled = _env_bool("MM_OCR_ENABLED")
+            self.mm_local_ocr_enabled = _env_bool("MM_LOCAL_OCR_ENABLED")
             self.mm_tts_enabled = _env_bool("MM_TTS_ENABLED")
             self.mm_image_enabled = _env_bool("MM_IMAGE_ENABLED")
             self.mm_video_enabled = _env_bool("MM_VIDEO_ENABLED")
             self.mm_ocr_max_pages = int(g("MM_OCR_MAX_PAGES", "6"))
             self.mm_ocr_tutor_timeout_s = float(g("MM_OCR_TUTOR_TIMEOUT_S", "20"))
             self.mm_ocr_ingest_timeout_s = float(g("MM_OCR_INGEST_TIMEOUT_S", "30"))
+            self.mm_local_ocr_timeout_s = float(g("MM_LOCAL_OCR_TIMEOUT_S", "20"))
             self.mm_tts_timeout_s = float(g("MM_TTS_TIMEOUT_S", "15"))
             self.mm_image_timeout_s = float(g("MM_IMAGE_TIMEOUT_S", "30"))
             self.mm_video_create_timeout_s = float(g("MM_VIDEO_CREATE_TIMEOUT_S", "15"))

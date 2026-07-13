@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Notice } from "@/components/ui";
-import { apiGet } from "@/lib/api";
+import { apiAssetUrl, apiGet } from "@/lib/api";
 import type { ResourceItem } from "@/lib/types";
 
 export default function VideoBlock({ payload }: { payload: ResourceItem["payload"] }) {
@@ -12,6 +12,9 @@ export default function VideoBlock({ payload }: { payload: ResourceItem["payload
   const [pollError, setPollError] = useState("");
   const script = payload.script;
   const scenes = script?.scenes || [];
+  const videoUrl = apiAssetUrl(video?.url);
+  const coverUrl = apiAssetUrl(payload.cover_url);
+  const audioUrl = apiAssetUrl(payload.audio_url);
 
   useEffect(() => {
     setVideo(payload.video);
@@ -51,8 +54,8 @@ export default function VideoBlock({ payload }: { payload: ResourceItem["payload
 
   return (
     <div className="space-y-3">
-      {video?.url ? (
-        <video src={video.url} controls poster={payload.cover_url} className="w-full rounded-xl border border-slate-200 bg-black" />
+      {videoUrl ? (
+        <video src={videoUrl} controls poster={coverUrl} className="w-full rounded-xl border border-slate-200 bg-black" />
       ) : video?.task_id ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
           <span className="min-w-0 text-slate-700">
@@ -79,9 +82,9 @@ export default function VideoBlock({ payload }: { payload: ResourceItem["payload
           title="已按预案切换为脚本讲解"
           desc="真实视频服务当前未接入,系统自动改为交付分镜脚本 + Manim 动画代码,讲解内容完整可用。"
         />
-      ) : payload.cover_url ? (
+      ) : coverUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={payload.cover_url} alt="视频封面" className="w-full rounded-xl border border-slate-200" />
+        <img src={coverUrl} alt="视频封面" className="w-full rounded-xl border border-slate-200" />
       ) : null}
 
       {pollError && <Notice tone="error" title={pollError} />}
@@ -109,10 +112,10 @@ export default function VideoBlock({ payload }: { payload: ResourceItem["payload
         </div>
       )}
 
-      {payload.audio_url && (
+      {audioUrl && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="mb-2 font-mono text-[11px] tracking-[0.18em] text-emerald-600">TTS · 讲解旁白音频</div>
-          <audio src={payload.audio_url} controls className="w-full" />
+          <audio src={audioUrl} controls className="w-full" />
         </div>
       )}
 

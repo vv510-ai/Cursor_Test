@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import ssl
+import threading
 from pathlib import Path
 
 from ..config import GEN_DIR, get_settings
@@ -57,7 +58,25 @@ def synthesize(text: str, *, voice: str = "xiaoyan", filename: str | None = None
         ws.send(json.dumps(payload))
 
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open)
-    ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+    timeout_s = max(0.1, float(getattr(s, "mm_tts_timeout_s", 15)))
+    timed_out: list[bool] = []
+
+    def abort_on_deadline() -> None:
+        timed_out.append(True)
+        try:
+            ws.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    watchdog = threading.Timer(timeout_s, abort_on_deadline)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+    finally:
+        watchdog.cancel()
+    if timed_out:
+        raise TimeoutError(f"TTS provider timeout after {timeout_s:g}s")
     if done and audio:
         Path(out).write_bytes(bytes(audio))
         return f"/static/gen/{out.name}"

@@ -14,7 +14,20 @@ log = logging.getLogger("sparklearn.image")
 TTI_URL = "https://spark-api.cn-huabei-1.xf-yun.com/v2.1/tti"
 
 
-def generate_image(prompt: str, *, width: int = 1024, height: int = 768) -> str | None:
+def _response_error(response: requests.Response, data: object) -> RuntimeError:
+    payload = data if isinstance(data, dict) else {}
+    header = payload.get("header") if isinstance(payload.get("header"), dict) else {}
+    code = header.get("code", "-")
+    sid = header.get("sid") or "-"
+    message = header.get("message") or header.get("msg") or payload.get("message") or "unknown error"
+    message = str(message).replace("\r", " ").replace("\n", " ")[:200]
+    return RuntimeError(
+        f"spark image generation http={response.status_code} "
+        f"code={code} sid={sid} message={message}"
+    )
+
+
+def generate_image(prompt: str, *, width: int = 768, height: int = 768) -> str | None:
     s = get_settings()
     if not (s.spark_appid and s.spark_api_key and s.spark_api_secret):
         return None
@@ -25,13 +38,33 @@ def generate_image(prompt: str, *, width: int = 1024, height: int = 768) -> str 
         "payload": {"message": {"text": [{"role": "user", "content": prompt}]}},
     }
     try:
-        r = requests.post(url, json=body, timeout=120)
-        data = r.json()
-        text = data["payload"]["choices"]["text"][0]["content"]
+        r = requests.post(url, json=body, timeout=max(1.0, float(getattr(s, "mm_image_timeout_s", 30))))
+        try:
+            data = r.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"spark image generation http={r.status_code} invalid JSON"
+            ) from exc
+
+        header = data.get("header") if isinstance(data, dict) else None
+        code = header.get("code", 0) if isinstance(header, dict) else 0
+        if (
+            not isinstance(data, dict)
+            or r.status_code != 200
+            or code not in (0, "0", None)
+            or not data.get("payload")
+        ):
+            raise _response_error(r, data)
+
+        choices = (data.get("payload") or {}).get("choices") or {}
+        items = choices.get("text") or []
+        text = items[0].get("content") if items and isinstance(items[0], dict) else None
+        if not text:
+            raise _response_error(r, data)
         img = base64.b64decode(text)
         out = GEN_DIR / f"img_{abs(hash(prompt)) % 10**8}.jpg"
         out.write_bytes(img)
         return f"/static/gen/{out.name}"
     except Exception as e:  # noqa: BLE001
         log.warning("文生图失败:%s", e)
-        return None
+        raise

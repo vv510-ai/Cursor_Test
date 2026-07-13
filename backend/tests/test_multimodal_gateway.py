@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.llm import multimodal_gateway as gateway
+from app.llm import local_ocr, spark_image, spark_ocr
 
 
 @pytest.fixture(autouse=True)
@@ -21,11 +25,13 @@ def _settings(**overrides):
         "spark_api_key": "key",
         "spark_api_secret": "secret",
         "mm_ocr_enabled": True,
+        "mm_local_ocr_enabled": False,
         "mm_tts_enabled": True,
         "mm_image_enabled": True,
         "mm_video_enabled": True,
         "mm_ocr_tutor_timeout_s": 0.05,
         "mm_ocr_ingest_timeout_s": 0.05,
+        "mm_local_ocr_timeout_s": 0.05,
         "mm_tts_timeout_s": 0.02,
         "mm_image_timeout_s": 0.05,
         "mm_video_create_timeout_s": 0.05,
@@ -106,6 +112,33 @@ def test_slow_tts_times_out_without_blocking_event_loop(monkeypatch):
     assert "timeout" in result["error"]
 
 
+def test_saturated_multimodal_pool_degrades_without_provider_call(monkeypatch):
+    settings = _settings()
+    called = False
+
+    class NoSlots:
+        @staticmethod
+        def acquire(*, blocking):
+            assert blocking is False
+            return False
+
+    def provider(*args, **kwargs):
+        nonlocal called
+        called = True
+        return "/static/gen/should-not-exist.mp3"
+
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway, "_MM_SLOTS", NoSlots())
+    monkeypatch.setattr(gateway.spark_tts, "synthesize", provider)
+
+    result = asyncio.run(gateway.tts("pool full", trace_id="pool-saturated"))
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert "pool saturated" in result["error"]
+    assert called is False
+
+
 def test_tts_uses_stable_content_cache(monkeypatch, tmp_path: Path):
     settings = _settings()
     calls = 0
@@ -177,9 +210,186 @@ def test_demo_ocr_keeps_existing_sample_behavior(monkeypatch):
     settings = _settings(spark_appid="", spark_api_key="", spark_api_secret="")
     monkeypatch.setattr(gateway, "get_settings", lambda: settings)
     monkeypatch.setattr(gateway, "is_demo", lambda: True)
-    monkeypatch.setattr(gateway.spark_ocr, "image_to_question", lambda image, hint="": "演示题面")
+    monkeypatch.setattr(
+        gateway.spark_ocr,
+        "image_to_question",
+        lambda image, hint="", max_tokens=1024, timeout_s=30: "演示题面",
+    )
 
     result = asyncio.run(gateway.ocr_image(b"image", trace_id="ocr-demo"))
 
     assert result["ok"] is True
     assert result["data"]["text"] == "演示题面"
+
+
+def test_ocr_falls_back_to_local_engine(monkeypatch):
+    settings = _settings(mm_local_ocr_enabled=True)
+    monkeypatch.setattr(gateway, "get_settings", lambda: settings)
+    monkeypatch.setattr(gateway.spark_ocr, "image_to_question", lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("spark image understanding code=11200")
+    ))
+    monkeypatch.setattr(gateway.local_ocr, "available", lambda: True)
+    monkeypatch.setattr(
+        gateway.local_ocr,
+        "recognize",
+        lambda image: {
+            "text": "二叉树前序遍历",
+            "lines": 1,
+            "confidence": 0.98,
+            "engine": "rapidocr-onnx",
+        },
+    )
+
+    result = asyncio.run(gateway.ocr_image(b"image", trace_id="ocr-local-fallback"))
+
+    assert result["ok"] is True
+    assert result["degraded"] is True
+    assert result["data"]["text"] == "二叉树前序遍历"
+    assert result["data"]["engine"] == "rapidocr-onnx"
+    assert "11200" in result["error"]
+
+
+def test_local_ocr_normalizes_lines_and_confidence(monkeypatch):
+    output = SimpleNamespace(
+        txts=(" 二叉树 ", "", "前序遍历"),
+        scores=(0.99, 0.8, 0.95),
+    )
+    monkeypatch.setattr(local_ocr, "_engine", lambda image: output)
+
+    result = local_ocr.recognize(b"image")
+
+    assert result == {
+        "text": "二叉树\n前序遍历",
+        "lines": 2,
+        "confidence": 0.97,
+        "engine": "rapidocr-onnx",
+    }
+
+
+def test_ocr_provider_error_keeps_code_and_sid(monkeypatch):
+    sent_requests = []
+
+    class FakeWebSocketApp:
+        def __init__(self, url, **callbacks):
+            self.callbacks = callbacks
+
+        def send(self, payload):
+            sent_requests.append(json.loads(payload))
+
+        def close(self):
+            return None
+
+        def run_forever(self):
+            self.callbacks["on_open"](self)
+            self.callbacks["on_message"](
+                self,
+                json.dumps(
+                    {
+                        "header": {
+                            "code": 11200,
+                            "message": "AppIdNoAuthError: domain.image",
+                            "sid": "ocr-sid-1",
+                        }
+                    }
+                ),
+            )
+
+    monkeypatch.setattr(spark_ocr, "is_demo", lambda: False)
+    monkeypatch.setattr(
+        spark_ocr,
+        "get_settings",
+        lambda: SimpleNamespace(
+            spark_appid="app",
+            spark_api_key="key",
+            spark_api_secret="secret",
+        ),
+    )
+    monkeypatch.setattr(spark_ocr, "assemble_auth_url", lambda *args, **kwargs: "https://signed.invalid")
+    monkeypatch.setitem(sys.modules, "websocket", SimpleNamespace(WebSocketApp=FakeWebSocketApp))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        spark_ocr.image_to_question(b"image")
+
+    error = str(exc_info.value)
+    assert "code=11200" in error
+    assert "sid=ocr-sid-1" in error
+    assert sent_requests[0]["parameter"]["chat"]["domain"] == "general"
+
+
+def test_ocr_provider_watchdog_closes_stalled_websocket(monkeypatch):
+    class StalledWebSocketApp:
+        def __init__(self, url, **callbacks):
+            self.callbacks = callbacks
+            self.closed = threading.Event()
+
+        def send(self, payload):
+            json.loads(payload)
+
+        def close(self):
+            self.closed.set()
+
+        def run_forever(self):
+            self.callbacks["on_open"](self)
+            assert self.closed.wait(0.5)
+
+    monkeypatch.setattr(spark_ocr, "is_demo", lambda: False)
+    monkeypatch.setattr(
+        spark_ocr,
+        "get_settings",
+        lambda: SimpleNamespace(
+            spark_appid="app",
+            spark_api_key="key",
+            spark_api_secret="secret",
+            spark_image_domain="general",
+        ),
+    )
+    monkeypatch.setattr(spark_ocr, "assemble_auth_url", lambda *args, **kwargs: "https://signed.invalid")
+    monkeypatch.setitem(sys.modules, "websocket", SimpleNamespace(WebSocketApp=StalledWebSocketApp))
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="provider timeout"):
+        spark_ocr.image_to_question(b"image", timeout_s=0.02)
+
+    assert time.monotonic() - started < 0.5
+
+
+def test_image_provider_error_keeps_code_and_sid(monkeypatch):
+    sent_bodies = []
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "header": {
+                    "code": 10005,
+                    "message": "invalid resolution",
+                    "sid": "tti-sid-1",
+                }
+            }
+
+    monkeypatch.setattr(
+        spark_image,
+        "get_settings",
+        lambda: SimpleNamespace(
+            spark_appid="app",
+            spark_api_key="key",
+            spark_api_secret="secret",
+        ),
+    )
+    monkeypatch.setattr(spark_image, "assemble_auth_url", lambda *args, **kwargs: "https://signed.invalid")
+    def fake_post(*args, **kwargs):
+        sent_bodies.append(kwargs["json"])
+        return FakeResponse()
+
+    monkeypatch.setattr(spark_image.requests, "post", fake_post)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        spark_image.generate_image("binary tree")
+
+    error = str(exc_info.value)
+    assert "code=10005" in error
+    assert "sid=tti-sid-1" in error
+    assert sent_bodies[0]["parameter"]["chat"]["width"] == 768
+    assert sent_bodies[0]["parameter"]["chat"]["height"] == 768

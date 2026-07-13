@@ -4,15 +4,22 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const BACKEND =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://localhost:8000";
 
 async function proxy(req: NextRequest, { params }: { params: { path: string[] } }) {
-  const target = `${BACKEND}/api/${params.path.join("/")}${req.nextUrl.search}`;
+  const joinedPath = params.path.join("/");
+  const upstreamPath = params.path[0] === "static" ? `/${joinedPath}` : `/api/${joinedPath}`;
+  const target = `${BACKEND}${upstreamPath}${req.nextUrl.search}`;
   const headers = new Headers();
   const contentType = req.headers.get("content-type");
   const accept = req.headers.get("accept");
+  const range = req.headers.get("range");
   if (contentType) headers.set("Content-Type", contentType);
   if (accept) headers.set("Accept", accept);
+  if (range) headers.set("Range", range);
 
   const init: RequestInit = {
     method: req.method,
@@ -24,12 +31,15 @@ async function proxy(req: NextRequest, { params }: { params: { path: string[] } 
     if (body.byteLength > 0) init.body = body;
   }
   const res = await fetch(target, init);
+  const responseHeaders = new Headers();
+  for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified"]) {
+    const value = res.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+  responseHeaders.set("Cache-Control", params.path[0] === "static" ? "public, max-age=3600" : "no-cache");
   return new Response(res.body, {
     status: res.status,
-    headers: {
-      "Content-Type": res.headers.get("content-type") || "application/json",
-      "Cache-Control": "no-cache",
-    },
+    headers: responseHeaders,
   });
 }
 

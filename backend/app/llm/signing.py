@@ -7,18 +7,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-from datetime import datetime, timezone
+import time
 from urllib.parse import urlencode, urlparse
 from wsgiref.handlers import format_date_time
-from time import mktime
 
 
 def assemble_auth_url(url: str, api_key: str, api_secret: str, method: str = "GET") -> str:
     """按讯飞规范生成带 authorization/date/host 查询参数的鉴权 URL。"""
     u = urlparse(url)
     host, path = u.netloc, u.path
-    now = datetime.now(timezone.utc)
-    date = format_date_time(mktime(now.timetuple()))
+    date = format_date_time(time.time())
     signature_origin = f"host: {host}\ndate: {date}\n{method} {path} HTTP/1.1"
     signature_sha = hmac.new(api_secret.encode(), signature_origin.encode(),
                              digestmod=hashlib.sha256).digest()

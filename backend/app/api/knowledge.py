@@ -29,6 +29,7 @@ from ..services.profile_service import ensure_user
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_UPLOAD_BYTES = 4 * 1024 * 1024
 
 
 def _safe_stem(name: str) -> str:
@@ -121,9 +122,11 @@ async def upload_source(
         allowed = ", ".join(sorted(supported_upload_suffixes()))
         raise HTTPException(400, f"unsupported file type, allowed: {allowed}")
 
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "file too large, max 8MB")
+    max_bytes = MAX_IMAGE_UPLOAD_BYTES if suffix in IMAGE_UPLOAD_SUFFIXES else MAX_UPLOAD_BYTES
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
+        raise HTTPException(413, f"file too large, max {max_mb}MB")
     if not data:
         raise HTTPException(400, "empty file")
 

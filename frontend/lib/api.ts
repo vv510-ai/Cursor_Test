@@ -3,6 +3,12 @@ import type { SparkEvent } from "./types";
 /** 所有请求经 Next BFF(app/api/[...path]/route.ts)转发到后端,规避浏览器 CORS。 */
 const BASE = "/api";
 
+/** 后端生成的 /static/* 资源继续经同一 BFF 获取，避免浏览器误请求 Next 端口。 */
+export function apiAssetUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  return url.startsWith("/static/") ? `${BASE}${url}` : url;
+}
+
 /** POST + SSE:逐事件回调;返回 abort 函数。 */
 export function postSSE(
   path: string,

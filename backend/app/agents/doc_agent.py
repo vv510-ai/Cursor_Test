@@ -163,7 +163,7 @@ async def _gen_one(
             ),
             multimodal_gateway.text_to_image(
                 _cover_prompt(name),
-                width=1024,
+                width=768,
                 height=768,
                 trace_id=trace_id,
             ),
